@@ -127,7 +127,7 @@ DisplayConfig {
 #### 3.5 AssetStore — 素材管理
 
 - 职责：管理壁纸素材的导入、存储和索引
-- 素材存储位置：`~/Library/Application Support/DeskMotion/Assets/`
+- 素材存储位置：`~/Library/Application Support/WallFlux/Assets/`
 - 素材类型：
   - `SystemWallpaper`：枚举 macOS 系统自带动态壁纸路径
   - `VideoAsset`：用户导入的视频文件（复制到素材目录）
