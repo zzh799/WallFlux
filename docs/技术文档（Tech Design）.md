@@ -142,9 +142,32 @@ DisplayConfig {
   - `ImageSequenceAsset`：用户导入的图片文件夹
 - 元数据以 JSON 文件存储在素材目录中
 
+#### 3.6 SmartPauseMonitor — 智能暂停监测
+
+- 职责：聚合六个条件的实时状态，推送给 ScreenManager 应用到各显示器（设计文档：`docs/智能暂停与开机自启设计.md`）
+- 条件与检测方式：
+  - 系统睡眠：`NSWorkspace.willSleepNotification` / `didWakeNotification`；唤醒后先重置各屏为活跃（`handleSystemWake`）再恢复
+  - 显示器睡眠：轮询 `CGDisplayIsAsleep`（每 2 秒，与全屏轮询共用定时器）。**注意**：实测部分环境下 `NSWorkspace.screensDidSleep/Wake` 与 `CGDisplayRegisterReconfigurationCallback` 均不触发，轮询是可靠兜底；重构回调保留作为事件驱动加速
+  - 低电量模式：`NSProcessInfoPowerStateDidChange` 通知 + `isLowPowerModeEnabled`
+  - 电池供电 / 电量百分比：`IOPSNotificationCreateRunLoopSource` 电源变化回调 + `IOPSCopyPowerSourcesInfo` 读取
+  - 低电量阈值：暂停线 = 阈值，恢复线 = 阈值 + 5%（防抖滞后）；与是否插电无关
+  - 全屏应用：每 2 秒轮询 `CGWindowListCopyWindowInfo`，layer 0 普通窗口 bounds 完全覆盖某屏 `visibleFrame` 即命中该屏（窗口坐标经 `appKitRectFromCGWindowList` 垂直翻转换算）；锁屏窗口（layer 2004）不命中
+- 二值暂停模型：任一启用条件命中 → 完全暂停（停播放 + 停微跳），无降频中间态；总开关关闭时所有条件不评估
+- 推送协议：`applySmartPause(globalReasons:fullscreenDisplayIDs:)`；`activeReasons`（@Published）供 UI 展示命中原因
+
+#### 3.7 LaunchAtLogin — 开机自启
+
+- 职责：系统登录项开关封装（设计文档 §1）
+- 实现：`SMAppService.mainApp`（macOS 13+ 原生 API），**系统状态为真相源**，不在 AppConfig 冗余存布尔
+- 关键能力：
+  - `status` / `isEnabled`（enabled 与 requiresApproval 均视为开）/ `requiresApproval`
+  - `enable()` → `register()`；`disable()` → `unregister()`；失败日志走 NSLog（stderr）
+  - 首启弹窗：UserDefaults 标记 `WallFlux.didShowLaunchAtLoginPrompt`，只询问一次，默认不勾选；弹窗同时简述当前智能暂停命中状态
+  - 开关组件 `LaunchAtLoginToggle`（面板紧凑模式 + 设置「启动」分区）：onAppear 读真实状态刷新，不做定时轮询；requiresApproval 时警示 + 「打开系统设置」（`x-apple.systempreferences:com.apple.LoginItems-Settings.extension`）
+
 ### 4. 状态机
 
-每个显示器的状态流转：
+每个显示器的状态流转（`active` / `idle` / `exiting`，宽限为 idle 的子状态）：
 
 ```
         ┌──────────┐
@@ -207,6 +230,28 @@ ScreenManager
     │
     └── 某屏进入 active（微跳）
             └── WallpaperEngine.pause() + 定时 stepForward()（窗口降回桌面层级）
+
+智能暂停数据流：
+
+```
+SmartPauseMonitor（条件事件驱动 + 2 秒全屏/显示器睡眠轮询）
+    │
+    ├── 系统睡眠 willSleep / 显示器睡眠 CGDisplayIsAsleep / 低电量模式通知
+    ├── 电源回调 IOPS（电池供电 / 电量百分比）→ 低电量阈值滞后评估
+    └── 全屏轮询 CGWindowList → 命中显示器 ID 集合
+    │
+    ▼
+applySmartPause(globalReasons ∪ fullscreenDisplayIDs)
+    │
+    ▼
+ScreenContext.setSmartPauseReasons → isPaused = 手动 ∨ 智能
+    │
+    ├── 暂停：停 idle/微跳计时器、engine.pause()（窗口降回桌面层级）
+    └── 恢复：active 恢复微跳；idle 从当前帧继续循环播放
+    │
+    ▼
+UI（面板「已暂停：[原因]」+ 设置「当前已暂停」）← activeReasons
+```
 ```
 
 ### 6. 关键 API / 框架依赖
@@ -219,6 +264,10 @@ ScreenManager
 | 视频播放 | `AVFoundation` (AVPlayer, AVPlayerLayer, AVPlayerLooper) |
 | 图片序列 | `NSImage` + 定时器 |
 | 窗口动画 | `NSAnimationContext` / `NSWindow.animator().alphaValue` |
+| 开机自启 | `ServiceManagement` (`SMAppService.mainApp`) |
+| 电源状态 | `IOKit.ps`（IOPS 通知 + 电量读取）、`ProcessInfo.isLowPowerModeEnabled` |
+| 显示器睡眠 | `CGDisplayIsAsleep`（轮询）、`CGDisplayRegisterReconfigurationCallback`（加速） |
+| 全屏检测 | `CGWindowListCopyWindowInfo`（layer 0 窗口覆盖工作区判定） |
 | 持久化 | `UserDefaults` + JSONEncoder/JSONDecoder |
 
 ### 7. 权限要求
@@ -236,3 +285,6 @@ ScreenManager
 | CGEventTap 被系统终止 | 闲置检测失效 | 实现 tap 超时重连机制 |
 | Mac App Store 沙盒限制 | 无法通过商店分发 | 仅通过 DMG / Homebrew 分发 |
 | 多 Spaces 下窗口行为异常 | 壁纸窗口出现在错误桌面 | 设置 `stationary` + `canJoinAllSpaces` behavior |
+| 显示器睡眠通知不可靠（部分系统 `screensDidSleep/Wake` 与 CGDisplay 重构回调不触发） | 显示器睡眠条件检测失效 | 轮询 `CGDisplayIsAsleep`（与全屏轮询共用 2 秒定时器），重构回调仅作事件驱动加速 |
+| 锁屏窗口误判全屏应用 | 锁屏时全屏条件误命中 | 全屏检测仅匹配 layer 0 窗口，锁屏窗口（layer 2004）不命中 |
+| 低电量阈值边界抖动 | 电量在阈值附近波动导致频繁暂停/恢复 | 恢复线 = 阈值 + 5% 防抖滞后，阈值与恢复线之间保持现状 |
