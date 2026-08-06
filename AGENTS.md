@@ -4,8 +4,9 @@
 
 ## 项目概况
 
-- **产品**：WallFlunx —— macOS 14+（Sonoma）菜单栏常驻应用，为每个显示器独立配置动态壁纸；闲置显示器自动循环播放壁纸保护屏幕，活跃显示器进入"微跳"模式防烧屏。
-- **当前状态**：**文档驱动阶段** —— 仓库仅含 `docs/`，尚无 Xcode 工程与源码。写任何代码前先读文档。
+- **产品**：WallFlux —— macOS 14+（Sonoma）菜单栏常驻应用，为每个显示器独立配置动态壁纸；闲置显示器自动循环播放壁纸保护屏幕，活跃显示器进入"微跳"模式防烧屏。
+- **仓库**：公开于 GitHub `zzh799/WallFlux`（https://github.com/zzh799/WallFlux），main 分支直接对接 GitHub Actions。
+- **当前状态**：功能已完整实现（WallFlux/ 源码 + WallFlux.xcodeproj），CI（构建验证 + 自动发布）已就绪。写代码前先读文档。
 
 ## 文档即规范（先读后写）
 
@@ -47,7 +48,7 @@ WallpaperEngine（壁纸窗口创建、视频/图片序列渲染、播放控制�
 - 注释、提交信息、UI 文案使用**中文**；代码标识符用英文。
 - 模块/类型命名对齐技术文档：`CoreManager`、`ScreenManager`、`IdleDetector`、`ConfigStore`、`AssetStore`、`WallpaperEngine`、`ScreenContext`。
 - 播放控制接口：`play()` / `pause()` / `stepForward(frames:)` / `fadeOut(duration:completion:)` / `currentFrame`。
-- 素材存放 `~/Library/Application Support/WallFlunx/Assets/`，元数据以 JSON 存同目录。
+- 素材存放 `~/Library/Application Support/WallFlux/Assets/`，元数据以 JSON 存同目录。
 - UI 遵守设计规范的 token（`spacing.*`、语义色），优先系统语义 API（`.title2`、`Color.accentColor`、`.monospacedDigit()` 等）。
 
 ## 已知坑（务必遵守）
@@ -60,6 +61,14 @@ WallpaperEngine（壁纸窗口创建、视频/图片序列渲染、播放控制�
 - 键盘输入通过 AX 查询聚焦窗口定位所在屏幕（`IdleDetector.focusedDisplayID()`），查询失败（系统繁忙 `kAXErrorCannotComplete` 等）时逐级回退：鼠标位置 → 前台应用窗口（`frontmostWindowDisplayID()`，CGWindowList）→ 最后才回退所有屏幕活跃，避免无输入屏幕的闲置计时器被反复重置。
 - `os.Logger` 的 `info` 级别日志需 `log show/stream --info --debug` 才能看到（默认被过滤）。
 - swift 脚本（swift-frontend 解释执行）的 `os.Logger` 不生效，测试脚本用 `NSLog` 或编译后运行。
+
+## CI 与发布
+
+- 工作流位于 `.github/workflows/`：
+  - `build.yml`：push main / PR 时构建 Debug 验证，作为 CI 门禁。
+  - `release.yml`：推送 `v*` 标签时构建 Release、打包 DMG（含 Applications 软链）并自动发布 GitHub Release；产物含 `WallFlux-<版本>.dmg`。
+- 发布新版本只需：`git tag v1.x.x && git push origin v1.x.x`，由 Actions 完成构建与发布，无需本地打包。
+- 中英文用户文档为 `README.md`（英文）与 `README_zh.md`（中文），修改产品行为时同步更新。
 
 ## 构建与运行
 
@@ -74,6 +83,9 @@ xcodebuild -project WallFlux.xcodeproj -scheme WallFlux -configuration Debug -de
 # 查看应用日志（需 --info 才能看到 info 级别）
 log stream --info --debug --predicate 'subsystem == "com.wallflux.WallFlux"'
 log show --last 10m --info --debug --predicate 'subsystem == "com.wallflux.WallFlux"'
+
+# 构建（Release，与 CI 一致）
+xcodebuild -project WallFlux.xcodeproj -scheme WallFlux -configuration Release -derivedDataPath build build
 
 # 调试配置注入（写入 defaults 域，二进制 plist 包 JSON Data）
 # 见 tools/write_test_config.swift 思路：PropertyListSerialization 包装后 defaults import
