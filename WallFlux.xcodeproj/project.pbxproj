@@ -16,6 +16,8 @@
 		000000000000000000000206 /* AssetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000106 /* AssetStore.swift */; };
 		000000000000000000000207 /* ScreenManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000107 /* ScreenManager.swift */; };
 		000000000000000000000208 /* ScreenContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000108 /* ScreenContext.swift */; };
+		00000000000000000000021B /* SmartPauseMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011C /* SmartPauseMonitor.swift */; };
+		00000000000000000000021C /* LaunchAtLogin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011D /* LaunchAtLogin.swift */; };
 		000000000000000000000209 /* IdleDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000109 /* IdleDetector.swift */; };
 		00000000000000000000020A /* WallpaperEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010A /* WallpaperEngine.swift */; };
 		00000000000000000000020B /* WallpaperWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010B /* WallpaperWindow.swift */; };
@@ -43,6 +45,8 @@
 		000000000000000000000106 /* AssetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetStore.swift; sourceTree = "<group>"; };
 		000000000000000000000107 /* ScreenManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenManager.swift; sourceTree = "<group>"; };
 		000000000000000000000108 /* ScreenContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenContext.swift; sourceTree = "<group>"; };
+		00000000000000000000011C /* SmartPauseMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartPauseMonitor.swift; sourceTree = "<group>"; };
+		00000000000000000000011D /* LaunchAtLogin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLogin.swift; sourceTree = "<group>"; };
 		000000000000000000000109 /* IdleDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleDetector.swift; sourceTree = "<group>"; };
 		00000000000000000000010A /* WallpaperEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WallpaperEngine.swift; sourceTree = "<group>"; };
 		00000000000000000000010B /* WallpaperWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WallpaperWindow.swift; sourceTree = "<group>"; };
@@ -129,6 +133,8 @@
 				000000000000000000000106 /* AssetStore.swift */,
 				000000000000000000000107 /* ScreenManager.swift */,
 				000000000000000000000108 /* ScreenContext.swift */,
+				00000000000000000000011C /* SmartPauseMonitor.swift */,
+				00000000000000000000011D /* LaunchAtLogin.swift */,
 				000000000000000000000109 /* IdleDetector.swift */,
 			);
 			path = Core;
@@ -248,6 +254,8 @@
 				000000000000000000000206 /* AssetStore.swift in Sources */,
 				000000000000000000000207 /* ScreenManager.swift in Sources */,
 				000000000000000000000208 /* ScreenContext.swift in Sources */,
+				00000000000000000000021B /* SmartPauseMonitor.swift in Sources */,
+				00000000000000000000021C /* LaunchAtLogin.swift in Sources */,
 				000000000000000000000209 /* IdleDetector.swift in Sources */,
 				00000000000000000000020A /* WallpaperEngine.swift in Sources */,
 				00000000000000000000020B /* WallpaperWindow.swift in Sources */,

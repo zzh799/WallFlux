@@ -3,6 +3,57 @@ import AVFoundation
 import ImageIO
 import SwiftUI
 
+/// 开机自启开关（设计 §1）：SMAppService 为真相源，onAppear 时读取真实状态刷新，不做定时轮询。
+/// 写穿：ON → register()；OFF → unregister()。
+/// 审批状态（.requiresApproval）：开关亮（开）+ 警示文案 + 「打开系统设置」按钮。
+/// - Parameters:
+///   - compact: 紧凑模式（菜单栏面板用），仅展示开关与精简警示行
+struct LaunchAtLoginToggle: View {
+    var compact = false
+    @State private var isOn = false
+    @State private var requiresApproval = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("开机自启", isOn: Binding(
+                get: { isOn },
+                set: { newValue in
+                    if newValue {
+                        LaunchAtLogin.enable()
+                    } else {
+                        LaunchAtLogin.disable()
+                    }
+                    refresh()
+                }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(compact ? .small : .regular)
+            .accessibilityLabel("开机自启")
+
+            if requiresApproval {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(compact ? .caption2 : .caption)
+                        .foregroundStyle(.yellow)
+                    Text("需在系统设置中批准")
+                        .font(compact ? .caption2 : .caption)
+                        .foregroundStyle(.secondary)
+                    Button("打开系统设置") {
+                        LaunchAtLogin.openSystemSettings()
+                    }
+                    .controlSize(compact ? .mini : .small)
+                }
+            }
+        }
+        .onAppear { refresh() }
+    }
+
+    private func refresh() {
+        isOn = LaunchAtLogin.isEnabled
+        requiresApproval = LaunchAtLogin.requiresApproval
+    }
+}
+
 /// 素材缩略图生成（不缓存；内存缓存由 ThumbnailLoader 统一负责）
 enum ThumbnailProvider {
     static func thumbnail(for asset: WallpaperAsset, maxPixelSize: CGFloat = 480) -> NSImage? {

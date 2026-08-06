@@ -32,9 +32,21 @@ final class ScreenContext: ObservableObject, Identifiable {
     private var graceTimer: Timer?
     /// 鼠标停止看门狗（随每次移动刷新）：超过阈值无移动则视为鼠标停止，取消宽限保持播放
     private var mouseStopTimer: Timer?
+    /// 手动暂停源（面板「暂停播放」开关，设计 §2.2 暂停源模型）
     private var isGloballyPaused = false
+    /// 智能暂停源集合：非空即暂停（系统睡眠/显示器睡眠/低电量/电池/全屏等）
+    private var smartPauseReasons: Set<SmartPauseReason> = []
+    /// 暂停是否已应用（避免重复应用/重复恢复）
+    private var isPauseApplied = false
+    /// 当前命中的智能暂停原因（按声明顺序，UI 展示用）
+    @Published private(set) var activeSmartPauseReasons: [SmartPauseReason] = []
     /// 输入监控是否可用（辅助功能权限）；无权限时禁止进入闲置置顶播放，避免无法退出
     private var inputMonitoringEnabled = false
+
+    /// 是否处于暂停：手动暂停 ∨ 智能暂停，任一为真即暂停
+    var isPaused: Bool { isGloballyPaused || !smartPauseReasons.isEmpty }
+    /// 是否因智能条件暂停（与手动暂停区分，UI 展示用）
+    var isSmartPaused: Bool { !smartPauseReasons.isEmpty }
 
     /// 鼠标停止判定阈值：宽限期（默认 5 秒）内停止移动超过该时长即取消退出，继续播放
     private static let mouseStopTimeout: TimeInterval = 2
@@ -78,7 +90,7 @@ final class ScreenContext: ObservableObject, Identifiable {
 
     /// 检测到用户输入（键盘 / 强鼠标交互：点击、拖拽、滚动）：立即响应，不走宽限
     func inputDetected() {
-        guard !isGloballyPaused else { return }
+        guard !isPaused else { return }
         switch state {
         case .idle:
             logger.info("显示器 \(self.displayID) 检测到输入，退出闲置")
@@ -93,7 +105,7 @@ final class ScreenContext: ObservableObject, Identifiable {
     /// 纯鼠标移动（弱输入）：闲置时启动/维持短暂进入宽限，宽限期内壁纸降层让位并暂停；
     /// 鼠标持续移动满宽限期才退出，移出或停止移动则恢复顶层播放
     func mouseMoved() {
-        guard !isGloballyPaused else { return }
+        guard !isPaused else { return }
         switch state {
         case .idle:
             if graceTimer != nil {
@@ -116,18 +128,62 @@ final class ScreenContext: ObservableObject, Identifiable {
         resumePlaybackAfterGrace()
     }
 
-    // MARK: - 全局暂停 / 恢复
+    // MARK: - 暂停（手动暂停源 + 智能暂停源，设计 §2.2）
 
-    func pauseGlobally() {
-        isGloballyPaused = true
+    /// 手动暂停源开关（CoreManager.isPaused 驱动）
+    func setManuallyPaused(_ paused: Bool) {
+        guard paused != isGloballyPaused else { return }
+        isGloballyPaused = paused
+        refreshPauseState()
+    }
+
+    /// 更新智能暂停源集合（SmartPauseMonitor 推送；空集合 = 无智能暂停）
+    func setSmartPauseReasons(_ reasons: Set<SmartPauseReason>) {
+        guard reasons != smartPauseReasons else { return }
+        smartPauseReasons = reasons
+        activeSmartPauseReasons = SmartPauseReason.allCases.filter { smartPauseReasons.contains($0) }
+        refreshPauseState()
+    }
+
+    /// 系统唤醒后重置为活跃（设计 §2.4）：idle 屏退出播放回 active，active 屏重置闲置计时器。
+    /// 暂停中同样重置（唤醒后壁纸不应立即置顶播放），恢复时按 active 态继续。
+    func resetToActive() {
+        switch state {
+        case .active:
+            resetIdleTimer()
+        case .idle:
+            beginExit()
+        case .exiting:
+            break
+        }
+    }
+
+    /// 暂停状态刷新：任一暂停源命中即暂停，全部清除即恢复
+    private func refreshPauseState() {
+        let paused = isPaused
+        guard paused != isPauseApplied else { return }
+        isPauseApplied = paused
+        if paused {
+            applyPause()
+        } else {
+            applyResume()
+        }
+    }
+
+    /// 应用暂停：停播放 / 停微跳计时器。恢复时回到暂停前状态（active 恢复微跳，idle 续播）。
+    private func applyPause() {
         idleTimer?.invalidate(); idleTimer = nil
         microStepTimer?.invalidate(); microStepTimer = nil
         cancelGrace()
-        engine?.pause(displayID: displayID)
+        // 退出动画进行中不打断（淡出会自然完成并回到 active）；其余状态立即暂停
+        if state != .exiting {
+            engine?.pause(displayID: displayID)
+        }
+        logger.info("显示器 \(self.displayID) 已暂停（\(self.pauseDescription, privacy: .public)）")
     }
 
-    func resumeGlobally() {
-        isGloballyPaused = false
+    /// 恢复：回到暂停前的状态——active 恢复微跳；idle 从当前帧继续循环播放
+    private func applyResume() {
         switch state {
         case .active:
             engine?.pause(displayID: displayID)
@@ -138,6 +194,13 @@ final class ScreenContext: ObservableObject, Identifiable {
         case .exiting:
             break
         }
+        logger.info("显示器 \(self.displayID) 已恢复")
+    }
+
+    private var pauseDescription: String {
+        if isGloballyPaused { return "手动暂停" }
+        return SmartPauseReason.allCases.filter { smartPauseReasons.contains($0) }
+            .map(\.displayName).joined(separator: "、")
     }
 
     /// 辅助功能权限变化：启用时重新开始闲置计时；禁用时取消闲置计时，
@@ -178,6 +241,7 @@ final class ScreenContext: ObservableObject, Identifiable {
     private func enterActive() {
         state = .active
         engine?.pause(displayID: displayID)
+        guard !isPaused else { return } // 暂停中不启动计时器，恢复时由 applyResume 启动
         startMicroStepTimer()
         resetIdleTimer()
     }
@@ -206,7 +270,7 @@ final class ScreenContext: ObservableObject, Identifiable {
     }
 
     private func idleTimerFired() {
-        guard state == .active, !isGloballyPaused else { return }
+        guard state == .active, !isPaused else { return }
         guard inputMonitoringEnabled else { return } // 无输入监控（未授权）时不进入闲置置顶
         state = .idle
         microStepTimer?.invalidate(); microStepTimer = nil
@@ -242,7 +306,7 @@ final class ScreenContext: ObservableObject, Identifiable {
     private func graceTimerFired() {
         graceTimer = nil
         mouseStopTimer = nil
-        guard state == .idle, !isGloballyPaused else { return }
+        guard state == .idle, !isPaused else { return }
         logger.info("显示器 \(self.displayID) 鼠标持续移动超过宽限期，退出闲置")
         // 先恢复顶层，保证渐隐过程可见
         engine?.setOnTop(displayID: displayID, onTop: true)
@@ -262,7 +326,7 @@ final class ScreenContext: ObservableObject, Identifiable {
     private func resumePlaybackAfterGrace() {
         guard graceTimer != nil || mouseStopTimer != nil else { return }
         cancelGrace()
-        guard state == .idle, !isGloballyPaused else { return }
+        guard state == .idle, !isPaused else { return }
         // play 内部会将窗口升回顶层并继续播放
         engine?.play(displayID: displayID)
     }
@@ -283,13 +347,14 @@ final class ScreenContext: ObservableObject, Identifiable {
     }
 
     private func microStepFired() {
-        guard state == .active, !isGloballyPaused else { return }
+        guard state == .active, !isPaused else { return }
         let frames = max(1, configStore.config.microStepFrameCount)
         engine?.stepForward(displayID: displayID, frames: frames)
     }
 
     private func resetIdleTimer() {
         idleTimer?.invalidate()
+        guard !isPaused else { return } // 暂停中不启动闲置计时（恢复时由 applyResume 启动）
         guard inputMonitoringEnabled else { return } // 无输入监控（未授权）时不启动闲置计时
         let seconds = max(1, configStore.config.idleTimeoutMinutes) * 60
         let timer = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
@@ -301,6 +366,7 @@ final class ScreenContext: ObservableObject, Identifiable {
 
     private func startMicroStepTimer() {
         microStepTimer?.invalidate()
+        guard !isPaused else { return } // 暂停中不启动微跳计时（恢复时由 applyResume 启动）
         let interval = max(1, configStore.config.microStepIntervalSeconds)
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             self?.microStepFired()

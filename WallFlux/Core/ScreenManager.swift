@@ -24,6 +24,8 @@ final class ScreenManager: ObservableObject {
     private let engine = WallpaperEngine()
     private var observers: [NSObjectProtocol] = []
     private var isPaused = false
+    /// 最近一次智能暂停推送（新接入的显示器立即应用当前条件）
+    private var lastSmartPause = (global: Set<SmartPauseReason>(), fullscreen: Set<String>())
 
     init(configStore: ConfigStore, assetStore: AssetStore) {
         self.configStore = configStore
@@ -40,7 +42,7 @@ final class ScreenManager: ObservableObject {
         })
 
         // 配置变更 → 刷新各显示器壁纸
-        configStore.onChange = { [weak self] in
+        configStore.addChangeHandler { [weak self] in
             self?.reloadAllWallpapers()
         }
 
@@ -80,10 +82,30 @@ final class ScreenManager: ObservableObject {
         contexts.forEach { $0.inputDetected() }
     }
 
-    /// 全局暂停 / 恢复
+    /// 全局暂停 / 恢复（手动暂停源，设计 §2.2）
     func setPaused(_ paused: Bool) {
         isPaused = paused
-        contexts.forEach { paused ? $0.pauseGlobally() : $0.resumeGlobally() }
+        contexts.forEach { $0.setManuallyPaused(paused) }
+    }
+
+    /// 智能暂停条件推送（SmartPauseMonitor 驱动）：全局条件 + 全屏命中显示器 → 各屏暂停源集合
+    func applySmartPause(globalReasons: Set<SmartPauseReason>, fullscreenDisplayIDs: Set<String>) {
+        lastSmartPause = (globalReasons, fullscreenDisplayIDs)
+        contexts.forEach { $0.setSmartPauseReasons(reasons(for: $0.displayID)) }
+    }
+
+    /// 系统唤醒：所有显示器重置为活跃（设计 §2.4，唤醒后壁纸不应立即置顶播放）
+    func handleSystemWake() {
+        contexts.forEach { $0.resetToActive() }
+    }
+
+    /// 计算指定显示器的智能暂停源集合（全局条件 ∪ 全屏条件）
+    private func reasons(for displayID: String) -> Set<SmartPauseReason> {
+        var reasons = lastSmartPause.global
+        if lastSmartPause.fullscreen.contains(displayID) {
+            reasons.insert(.fullscreenApp)
+        }
+        return reasons
     }
 
     /// 辅助功能权限（输入监控可用性）：无权限时禁止闲置置顶播放，防止窗口永远置顶
@@ -129,9 +151,11 @@ final class ScreenManager: ObservableObject {
                                     configStore: configStore, assetStore: assetStore, engine: engine)
             contexts.append(ctx)
             ctx.start()
+            // 新接入的显示器立即应用当前手动暂停与智能暂停条件
             if isPaused {
-                ctx.pauseGlobally()
+                ctx.setManuallyPaused(true)
             }
+            ctx.setSmartPauseReasons(reasons(for: id))
         }
     }
 }

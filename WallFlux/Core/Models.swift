@@ -72,6 +72,44 @@ enum DisplayState {
     }
 }
 
+/// 智能暂停原因（设计文档 §2.2 暂停源模型）
+/// 任一启用条件命中即完全暂停（停播放 + 停微跳），无降频中间态。
+/// 作用域：全局条件命中作用于所有屏；全屏应用仅作用于命中的那台屏。
+enum SmartPauseReason: String, CaseIterable, Identifiable {
+    case systemSleep = "systemSleep"
+    case displaySleep = "displaySleep"
+    case lowPowerMode = "lowPowerMode"
+    case batteryPower = "batteryPower"
+    case lowBattery = "lowBattery"
+    case fullscreenApp = "fullscreenApp"
+
+    var id: String { rawValue }
+
+    /// 中文显示名
+    var displayName: String {
+        switch self {
+        case .systemSleep: return "系统睡眠"
+        case .displaySleep: return "显示器睡眠"
+        case .lowPowerMode: return "低电量模式"
+        case .batteryPower: return "电池供电"
+        case .lowBattery: return "低电量"
+        case .fullscreenApp: return "全屏应用"
+        }
+    }
+
+    /// 解决指引（面板提示用）
+    var guidance: String {
+        switch self {
+        case .systemSleep: return "系统唤醒后自动恢复"
+        case .displaySleep: return "唤醒显示器后自动恢复"
+        case .lowPowerMode: return "关闭系统低电量模式后恢复"
+        case .batteryPower: return "接通电源后恢复"
+        case .lowBattery: return "充电至阈值以上后恢复"
+        case .fullscreenApp: return "退出全屏应用后恢复"
+        }
+    }
+}
+
 /// 全局应用配置（UserDefaults + JSON 持久化）
 struct AppConfig: Codable, Equatable {
     var idleTimeoutMinutes: Double = 1           // 闲置判定超时 N（分钟）
@@ -87,6 +125,16 @@ struct AppConfig: Codable, Equatable {
     var sharedWallpaperType: WallpaperType = .system
     var sharedWallpaperAssetID: String = "system:.wallpapers/Sequoia Sunrise/Sequoia Sunrise.mov"
     var displayConfigs: [DisplayConfig] = []    // 逐显示器配置（含各显示器帧位置）
+
+    // 智能暂停（设计文档 §3）：总开关 OFF 时各条件开关保留配置但不生效
+    var smartPauseEnabled: Bool = true          // 智能暂停总开关
+    var pauseOnSleep: Bool = true               // 系统睡眠
+    var pauseOnDisplaySleep: Bool = true        // 显示器睡眠
+    var pauseOnLowPowerMode: Bool = true        // 低电量模式
+    var pauseOnBattery: Bool = true             // 电池供电
+    var pauseOnLowBattery: Bool = true          // 低电量阈值
+    var lowBatteryThresholdPercent: Double = 40 // 低电量阈值（5...50）
+    var pauseOnFullscreen: Bool = true          // 全屏应用
 }
 
 // 兼容旧版本持久化数据：新增字段缺失时回退默认值
@@ -97,6 +145,8 @@ extension AppConfig {
         case briefEntryGraceSeconds
         case wallpaperConfigMode, sharedWallpaperType, sharedWallpaperAssetID
         case displayConfigs
+        case smartPauseEnabled, pauseOnSleep, pauseOnDisplaySleep, pauseOnLowPowerMode
+        case pauseOnBattery, pauseOnLowBattery, lowBatteryThresholdPercent, pauseOnFullscreen
     }
 
     init(from decoder: Decoder) throws {
@@ -110,6 +160,15 @@ extension AppConfig {
         sharedWallpaperType = try c.decodeIfPresent(WallpaperType.self, forKey: .sharedWallpaperType) ?? .system
         sharedWallpaperAssetID = try c.decodeIfPresent(String.self, forKey: .sharedWallpaperAssetID) ?? "system:.wallpapers/Sequoia Sunrise/Sequoia Sunrise.mov"
         displayConfigs = try c.decodeIfPresent([DisplayConfig].self, forKey: .displayConfigs) ?? []
+        // 智能暂停（旧版本数据缺省时全部回退默认值）
+        smartPauseEnabled = try c.decodeIfPresent(Bool.self, forKey: .smartPauseEnabled) ?? true
+        pauseOnSleep = try c.decodeIfPresent(Bool.self, forKey: .pauseOnSleep) ?? true
+        pauseOnDisplaySleep = try c.decodeIfPresent(Bool.self, forKey: .pauseOnDisplaySleep) ?? true
+        pauseOnLowPowerMode = try c.decodeIfPresent(Bool.self, forKey: .pauseOnLowPowerMode) ?? true
+        pauseOnBattery = try c.decodeIfPresent(Bool.self, forKey: .pauseOnBattery) ?? true
+        pauseOnLowBattery = try c.decodeIfPresent(Bool.self, forKey: .pauseOnLowBattery) ?? true
+        lowBatteryThresholdPercent = try c.decodeIfPresent(Double.self, forKey: .lowBatteryThresholdPercent) ?? 40
+        pauseOnFullscreen = try c.decodeIfPresent(Bool.self, forKey: .pauseOnFullscreen) ?? true
     }
 }
 

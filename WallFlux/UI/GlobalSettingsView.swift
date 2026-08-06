@@ -1,8 +1,10 @@
 import SwiftUI
 
 /// 全局设置（FR-11）：闲置超时 N / 微跳间隔 Y / 微跳帧数 Z / 退出方式
+/// + 设计文档：启动分区（开机自启）、智能暂停分区（总开关 + 6 条件 + 低电量阈值）
 struct GlobalSettingsView: View {
     @ObservedObject private var configStore = ConfigStore.shared
+    @ObservedObject private var smartPauseMonitor = CoreManager.shared.smartPauseMonitor
 
     var body: some View {
         Form {
@@ -61,9 +63,71 @@ struct GlobalSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section("启动") {
+                LaunchAtLoginToggle()
+                Text("登录时自动启动 WallFlux，常驻菜单栏。开关状态以系统为准，与菜单栏面板同步。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("智能暂停") {
+                Toggle("启用智能暂停", isOn: boolBinding(keyPath: \.smartPauseEnabled))
+                Text("开启后，任一启用条件命中时暂停全部（或对应）显示器的壁纸播放与微跳；关闭则恢复纯手动控制，各条件开关保留配置但不生效。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if configStore.config.smartPauseEnabled {
+                    Toggle("系统睡眠", isOn: boolBinding(keyPath: \.pauseOnSleep))
+                    Toggle("显示器睡眠", isOn: boolBinding(keyPath: \.pauseOnDisplaySleep))
+                    Toggle("低电量模式", isOn: boolBinding(keyPath: \.pauseOnLowPowerMode))
+                    Toggle("电池供电", isOn: boolBinding(keyPath: \.pauseOnBattery))
+                    Toggle("低电量", isOn: boolBinding(keyPath: \.pauseOnLowBattery))
+                    if configStore.config.pauseOnLowBattery {
+                        sliderRow(title: "低电量阈值",
+                                  value: Binding(
+                                    get: { configStore.config.lowBatteryThresholdPercent },
+                                    set: { newValue in configStore.update { $0.lowBatteryThresholdPercent = newValue } }
+                                  ),
+                                  range: 5...50, unit: "%", step: 1)
+                        Text("电量低于阈值即暂停（与是否插电无关，充电时同样生效）；充至阈值 +5% 后才恢复，避免边界电量波动导致频繁抖动。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Toggle("全屏应用", isOn: boolBinding(keyPath: \.pauseOnFullscreen))
+                    Text("全屏或最大化的应用窗口所在显示器暂停播放，其余显示器不受影响。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    smartPauseStatusRow
+                }
+            }
         }
         .formStyle(.grouped)
         .padding(20)
+    }
+
+    /// 智能暂停当前命中状态（与菜单栏面板的「已暂停：[原因]」对应）
+    private var smartPauseStatusRow: some View {
+        let reasons = smartPauseMonitor.activeReasons
+        return HStack(spacing: 8) {
+            Image(systemName: reasons.isEmpty ? "checkmark.circle" : "pause.circle.fill")
+                .foregroundStyle(reasons.isEmpty ? Color.green : Color.orange)
+            Text(reasons.isEmpty ? "当前未命中任何暂停条件"
+                 : "当前已暂停：\(reasons.map(\.displayName).joined(separator: "、"))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// AppConfig 布尔字段绑定（写穿 ConfigStore 并触发壁纸/条件刷新）
+    private func boolBinding(keyPath: WritableKeyPath<AppConfig, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { configStore.config[keyPath: keyPath] },
+            set: { newValue in configStore.update { $0[keyPath: keyPath] = newValue } }
+        )
     }
 
     private func sliderRow(title: String,

@@ -109,7 +109,10 @@ final class IdleDetector: ObservableObject {
               let x = bounds["X"], let y = bounds["Y"], let w = bounds["Width"], let h = bounds["Height"] else {
             return nil
         }
-        let center = CGPoint(x: x + w / 2, y: y + h / 2)
+        // CGWindowList 坐标为全局显示坐标（主屏左上角原点），需换算为 AppKit 坐标（主屏左下角原点）
+        // 再取中心点，否则垂直堆叠的多显示器布局会定位到错误屏幕
+        let windowRect = CGRect(x: x, y: y, width: w, height: h).appKitRectFromCGWindowList()
+        let center = CGPoint(x: windowRect.midX, y: windowRect.midY)
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) else { return nil }
         return String(screen.fluxDisplayID)
     }

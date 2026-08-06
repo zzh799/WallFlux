@@ -8,8 +8,8 @@ final class ConfigStore: ObservableObject {
 
     @Published private(set) var config: AppConfig
 
-    /// 配置变更回调（ScreenManager 据此刷新壁纸）
-    var onChange: (() -> Void)?
+    /// 配置变更回调（ScreenManager 刷新壁纸、SmartPauseMonitor 重新评估条件）
+    private var changeHandlers: [() -> Void] = []
 
     private let defaults: UserDefaults
     private let key = "WallFlux.appConfig.v1"
@@ -24,6 +24,11 @@ final class ConfigStore: ObservableObject {
         }
     }
 
+    /// 注册配置变更回调
+    func addChangeHandler(_ handler: @escaping () -> Void) {
+        changeHandlers.append(handler)
+    }
+
     /// 原子修改并持久化
     func update(_ mutate: (inout AppConfig) -> Void) {
         var newConfig = config
@@ -31,7 +36,7 @@ final class ConfigStore: ObservableObject {
         guard newConfig != config else { return }
         config = newConfig
         persist()
-        onChange?()
+        changeHandlers.forEach { $0() }
     }
 
     /// 更新单个显示器的配置（不存在则追加）
@@ -49,7 +54,7 @@ final class ConfigStore: ObservableObject {
     func reset() {
         config = AppConfig()
         persist()
-        onChange?()
+        changeHandlers.forEach { $0() }
     }
 
     private func persist() {

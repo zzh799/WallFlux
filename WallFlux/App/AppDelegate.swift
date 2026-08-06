@@ -8,6 +8,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         core.start()
         menuBarController = MenuBarController(core: core)
+        // 首启弹窗稍后展示，避免与菜单栏图标出现抢焦点
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.showLaunchAtLoginPromptIfNeeded()
+        }
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
@@ -16,5 +20,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         core.shutdown()
+    }
+
+    // MARK: - 首启弹窗（设计 §1.2）
+
+    /// 首次启动弹窗询问开机自启（默认关闭，不静默开启）；
+    /// 若电量偏低且智能暂停已触发，同时简述当前暂停状态，避免用户困惑。
+    private func showLaunchAtLoginPromptIfNeeded() {
+        guard !LaunchAtLogin.didShowPrompt else { return }
+        LaunchAtLogin.didShowPrompt = true
+
+        let alert = NSAlert()
+        alert.messageText = "欢迎使用 WallFlux"
+        alert.informativeText = "是否在登录时自动启动 WallFlux？"
+
+        // 勾选项：开机自启（默认不勾选，由用户主动决定）
+        let checkbox = NSButton(checkboxWithTitle: "开机自启", target: nil, action: nil)
+        checkbox.state = .off
+
+        // 智能暂停已触发时简述当前状态
+        let accessory = NSStackView()
+        accessory.orientation = .vertical
+        accessory.alignment = .leading
+        accessory.spacing = 8
+        accessory.addArrangedSubview(checkbox)
+        let reasons = core.smartPauseMonitor.activeReasons
+        if !reasons.isEmpty {
+            let label = NSTextField(wrappingLabelWithString:
+                "当前已暂停：\(reasons.map(\.displayName).joined(separator: "、"))，条件解除后自动恢复。")
+            label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            label.textColor = .secondaryLabelColor
+            accessory.addArrangedSubview(label)
+        }
+        alert.accessoryView = accessory
+
+        alert.addButton(withTitle: "好")
+        alert.addButton(withTitle: "稍后再说")
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn && checkbox.state == .on {
+            LaunchAtLogin.enable()
+        }
     }
 }
