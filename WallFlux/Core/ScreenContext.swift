@@ -33,6 +33,8 @@ final class ScreenContext: ObservableObject, Identifiable {
     /// 鼠标停止看门狗（随每次移动刷新）：超过阈值无移动则视为鼠标停止，取消宽限保持播放
     private var mouseStopTimer: Timer?
     private var isGloballyPaused = false
+    /// 输入监控是否可用（辅助功能权限）；无权限时禁止进入闲置置顶播放，避免无法退出
+    private var inputMonitoringEnabled = false
 
     /// 鼠标停止判定阈值：宽限期（默认 5 秒）内停止移动超过该时长即取消退出，继续播放
     private static let mouseStopTimeout: TimeInterval = 2
@@ -138,6 +140,26 @@ final class ScreenContext: ObservableObject, Identifiable {
         }
     }
 
+    /// 辅助功能权限变化：启用时重新开始闲置计时；禁用时取消闲置计时，
+    /// 若正在置顶播放则立即退出（防止无输入检测时窗口永远置顶、用户无法操作）
+    func setInputMonitoringEnabled(_ enabled: Bool) {
+        guard enabled != inputMonitoringEnabled else { return }
+        inputMonitoringEnabled = enabled
+        if enabled {
+            if state == .active {
+                resetIdleTimer()
+            }
+            logger.info("输入监控已启用，闲置检测恢复")
+        } else {
+            idleTimer?.invalidate(); idleTimer = nil
+            cancelGrace()
+            if state == .idle {
+                logger.info("输入监控不可用，退出闲置置顶播放")
+                beginExit()
+            }
+        }
+    }
+
     /// 配置变更后刷新壁纸（素材变化才重建窗口）
     func reloadWallpaperIfNeeded(force: Bool = false) {
         ensureDisplayConfigSaved()
@@ -185,6 +207,7 @@ final class ScreenContext: ObservableObject, Identifiable {
 
     private func idleTimerFired() {
         guard state == .active, !isGloballyPaused else { return }
+        guard inputMonitoringEnabled else { return } // 无输入监控（未授权）时不进入闲置置顶
         state = .idle
         microStepTimer?.invalidate(); microStepTimer = nil
         logger.info("显示器 \(self.displayID) 进入闲置，开始循环播放")
@@ -267,6 +290,7 @@ final class ScreenContext: ObservableObject, Identifiable {
 
     private func resetIdleTimer() {
         idleTimer?.invalidate()
+        guard inputMonitoringEnabled else { return } // 无输入监控（未授权）时不启动闲置计时
         let seconds = max(1, configStore.config.idleTimeoutMinutes) * 60
         let timer = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
             self?.idleTimerFired()

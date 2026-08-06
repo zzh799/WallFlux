@@ -20,6 +20,8 @@ final class CoreManager: ObservableObject {
 
     /// 鼠标最近一次事件所在显示器的 displayID（用于检测鼠标移入/移出）
     private var lastMouseDisplayID: String?
+    /// 辅助功能权限订阅：无权限时禁止闲置置顶播放
+    private var trustSubscription: AnyCancellable?
 
     private init() {}
 
@@ -32,9 +34,21 @@ final class CoreManager: ObservableObject {
         idleDetector.start()
 
         screenManager.start()
+
+        // 辅助功能权限变化 → 启用/禁用闲置置顶播放。无权限时输入检测失效，
+        // 若仍进入闲置会置顶播放且永远无法退出，用户将被锁死在壁纸窗口下。
+        // @Published 订阅时立即发送当前值，启动初期未授权也能正确禁用。
+        trustSubscription = idleDetector.$isTrusted
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] trusted in
+                self?.screenManager.setInputMonitoringEnabled(trusted)
+            }
     }
 
     func shutdown() {
+        trustSubscription?.cancel()
+        trustSubscription = nil
         idleDetector.stop()
         screenManager.shutdown()
     }

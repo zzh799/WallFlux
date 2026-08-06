@@ -86,6 +86,11 @@ final class ScreenManager: ObservableObject {
         contexts.forEach { paused ? $0.pauseGlobally() : $0.resumeGlobally() }
     }
 
+    /// 辅助功能权限（输入监控可用性）：无权限时禁止闲置置顶播放，防止窗口永远置顶
+    func setInputMonitoringEnabled(_ enabled: Bool) {
+        contexts.forEach { $0.setInputMonitoringEnabled(enabled) }
+    }
+
     func context(for displayID: String) -> ScreenContext? {
         contexts.first { $0.displayID == displayID }
     }
