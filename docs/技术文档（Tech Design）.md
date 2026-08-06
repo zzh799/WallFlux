@@ -63,6 +63,7 @@
 - 职责：监控全局输入事件，判定各显示器的活跃/闲置状态
 - 关键能力：
   - 通过 `CGEvent.tapCreate` 监听全局鼠标移动和键盘事件
+  - 输入事件分为弱输入与强输入：纯鼠标移动为弱输入（走短暂进入宽限机制）；点击/拖拽/滚动为强输入（立即响应）；键盘为强输入
   - 鼠标事件：获取鼠标当前位置 `NSEvent.mouseLocation`，通过 `NSScreen.screens` 遍历判断落在哪个显示器，将该显示器标记为活跃
   - 键盘事件：通过 AX API 查询聚焦窗口（`kAXFocusedApplicationAttribute` → `kAXFocusedWindowAttribute`），以窗口中心点所在显示器为准标记活跃；AX 查询失败（系统繁忙 `kAXErrorCannotComplete` 等）时逐级回退：鼠标位置所在屏 → 前台应用窗口（CGWindowList，无需权限）→ 最后才回退所有显示器（保守防烧屏）；查询带 0.5 秒节流缓存
   - 活跃事件发生后，重置对应显示器的闲置倒计时器
@@ -77,7 +78,7 @@
 - 职责：管理桌面层级覆盖窗口，负责视频和图片序列的渲染与播放控制
 - 窗口创建（AppKit）：
   - 为每个目标显示器创建 `NSWindow`
-  - 设置 `level = kCGDesktopWindowLevel`（桌面图标层之上，Dock/普通窗口之下）
+  - **动态层级**：播放时 `level = kCGScreenSaverWindowLevel`（屏保层级，置顶覆盖普通窗口与菜单栏）；暂停/微跳时降回 `kCGDesktopIconWindowLevel`（桌面图标层，普通窗口之下）
   - 设置 `collectionBehavior = [.canJoinAllSpaces, .stationary]`（跟随 Spaces 切换）
   - 窗口无边框、全屏覆盖目标 NSScreen 的 frame
   - 设置 `ignoresMouseEvents = true`（不拦截鼠标事件）
@@ -113,6 +114,7 @@ AppConfig {
     microStepIntervalSeconds: Double  // 微跳间隔 Y
     microStepFrameCount: Int      // 微跳帧数 Z
     exitMode: ExitMode            // .immediate / .fadeOut
+    briefEntryGraceSeconds: Double  // 鼠标短暂进入宽限期（秒，0 = 立即退出）
     wallpaperConfigMode: WallpaperConfigMode  // .allDisplays / .perDisplay
     sharedWallpaperType: WallpaperType        // 所有显示器模式下的共享类型
     sharedWallpaperAssetID: String            // 所有显示器模式下的共享素材 ID
@@ -152,11 +154,19 @@ DisplayConfig {
               │ 闲置倒计时到期
               ▼
         ┌──────────┐
-        │   idle    │ ← 开始循环播放壁纸
+        │   idle    │ ← 开始循环播放壁纸（窗口置顶）
         │ (播放中)  │
         └─────┬─────┘
               │ 检测到用户输入（鼠标移至该屏/键盘操作）
               ▼
+        ┌──────────────┐
+        │ 宽限（子状态）│ ← 鼠标进入：壁纸降层让位并暂停
+        │ (grace)       │     ├─ 宽限期内鼠标移出/停止移动 → 恢复置顶播放（回 idle）
+        │               │     ├─ 点击/滚动/拖拽/键盘 → 立即退出
+        │               │     └─ 持续移动满宽限期 → 恢复顶层后退出
+        └──────┬───────┘
+               │ 判定为真实使用
+               ▼
         ┌──────────┐
         │  exiting  │ ← 执行退出动画（立即/渐隐）
         │ (退出中)  │
@@ -164,7 +174,7 @@ DisplayConfig {
               │ 退出完成，记录当前帧位置
               ▼
         ┌──────────┐
-        │  active   │ ← 恢复微跳模式，从记录帧开始
+        │  active   │ ← 恢复微跳模式，从记录帧开始（窗口降回桌面层级）
         └──────────┘
 ```
 
@@ -176,22 +186,27 @@ DisplayConfig {
     ▼
 IdleDetector (CGEventTap)
     │
-    ├── 鼠标事件 → 计算所在 NSScreen → 标记活跃 + 重置计时器
-    ├── 键盘事件 → AX 查询焦点窗口所在屏 → 标记活跃 + 重置计时器
-    │       └── AX 失败 → 回退鼠标所在屏 → 前台应用窗口 → 最后才回退全部
+    ├── 鼠标纯移动（弱输入）→ 计算所在 NSScreen → 记录移入/移出，刷新宽限状态
+    │       ├── 闲置显示器：启动宽限 → 壁纸降层让位 + 暂停
+    │       │       ├── 移出/停止移动 → 恢复置顶播放
+    │       │       └── 持续移动满宽限期 → 恢复顶层 → 渐隐退出
+    │       └── 活跃显示器：重置闲置计时器
+    ├── 鼠标点击/拖拽/滚动（强输入）→ 所在显示器立即标记活跃（不走宽限）
+    └── 键盘事件 → AX 查询焦点窗口所在屏 → 标记活跃（不走宽限）
+            └── AX 失败 → 回退鼠标所在屏 → 前台应用窗口 → 最后才回退全部
     │
     ▼
 ScreenManager
     │
     ├── 某屏闲置计时器到期 → 切换为 idle
-    │       └── WallpaperEngine.play() → 循环播放
+    │       └── WallpaperEngine.play() → 循环播放 + 窗口置顶（屏保层级）
     │
     ├── 某屏从 idle 变为活跃 → 切换为 exiting
     │       └── WallpaperEngine.fadeOut() or 立即停止
     │       └── 记录 currentFrame
     │
     └── 某屏进入 active（微跳）
-            └── WallpaperEngine.pause() + 定时 stepForward()
+            └── WallpaperEngine.pause() + 定时 stepForward()（窗口降回桌面层级）
 ```
 
 ### 6. 关键 API / 框架依赖
@@ -217,7 +232,7 @@ ScreenManager
 
 | 风险 | 影响 | 缓解措施 |
 |------|------|----------|
-| `kCGDesktopWindowLevel` 在 macOS 未来版本中行为变化 | 壁纸窗口层级可能不生效 | 预留降级方案（使用更低的 CGWindowLevel 值） |
+| 壁纸窗口层级（`kCGScreenSaverWindowLevel` / `kCGDesktopIconWindowLevel`）在 macOS 未来版本中行为变化 | 置顶/桌面层级可能不生效 | 预留降级方案（使用相邻的 CGWindowLevel 值），层级切换集中在 `WallpaperWindow.applyLevel` 便于调整 |
 | CGEventTap 被系统终止 | 闲置检测失效 | 实现 tap 超时重连机制 |
 | Mac App Store 沙盒限制 | 无法通过商店分发 | 仅通过 DMG / Homebrew 分发 |
 | 多 Spaces 下窗口行为异常 | 壁纸窗口出现在错误桌面 | 设置 `stationary` + `canJoinAllSpaces` behavior |

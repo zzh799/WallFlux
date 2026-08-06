@@ -78,6 +78,9 @@ struct AppConfig: Codable, Equatable {
     var microStepIntervalSeconds: Double = 30    // 微跳间隔 Y（秒）
     var microStepFrameCount: Int = 10            // 微跳帧数 Z
     var exitMode: ExitMode = .immediate          // 退出方式
+    /// 鼠标短暂进入宽限期（秒）：鼠标进入闲置显示器后宽限期内继续播放，
+    /// 移出或停止移动则保持播放；持续移动满宽限期才退出。0 表示立即退出。
+    var briefEntryGraceSeconds: Double = 5
     /// 壁纸配置方式：所有显示器共享 / 逐显示器单独设置
     var wallpaperConfigMode: WallpaperConfigMode = .allDisplays
     /// 所有显示器模式下共享的壁纸类型与素材
@@ -91,6 +94,7 @@ struct AppConfig: Codable, Equatable {
 extension AppConfig {
     private enum CodingKeys: String, CodingKey {
         case idleTimeoutMinutes, microStepIntervalSeconds, microStepFrameCount, exitMode
+        case briefEntryGraceSeconds
         case wallpaperConfigMode, sharedWallpaperType, sharedWallpaperAssetID
         case displayConfigs
     }
@@ -101,6 +105,7 @@ extension AppConfig {
         microStepIntervalSeconds = try c.decodeIfPresent(Double.self, forKey: .microStepIntervalSeconds) ?? 30
         microStepFrameCount = try c.decodeIfPresent(Int.self, forKey: .microStepFrameCount) ?? 10
         exitMode = try c.decodeIfPresent(ExitMode.self, forKey: .exitMode) ?? .immediate
+        briefEntryGraceSeconds = try c.decodeIfPresent(Double.self, forKey: .briefEntryGraceSeconds) ?? 5
         wallpaperConfigMode = try c.decodeIfPresent(WallpaperConfigMode.self, forKey: .wallpaperConfigMode) ?? .allDisplays
         sharedWallpaperType = try c.decodeIfPresent(WallpaperType.self, forKey: .sharedWallpaperType) ?? .system
         sharedWallpaperAssetID = try c.decodeIfPresent(String.self, forKey: .sharedWallpaperAssetID) ?? "system:.wallpapers/Sequoia Sunrise/Sequoia Sunrise.mov"

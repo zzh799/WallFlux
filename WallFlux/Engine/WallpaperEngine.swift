@@ -37,6 +37,11 @@ final class WallpaperEngine {
         windows[displayID]?.play()
     }
 
+    /// 仅切换窗口层级（不改变播放状态）
+    func setOnTop(displayID: String, onTop: Bool) {
+        windows[displayID]?.setOnTop(onTop)
+    }
+
     func pause(displayID: String) {
         windows[displayID]?.pause()
     }

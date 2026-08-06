@@ -67,12 +67,28 @@ final class WallpaperWindow: NSObject {
 
     // MARK: - 播放控制
 
+    /// 播放时窗口置于顶层（屏保层级，覆盖普通窗口与菜单栏）；暂停时回到桌面图标层级
+    /// （满足 FR-02「桌面图标之上、普通窗口之下」，微跳模式不遮挡工作窗口）
+    private func applyLevel(playing: Bool) {
+        let key: CGWindowLevelKey = playing ? .screenSaverWindow : .desktopIconWindow
+        let target = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(key)))
+        guard nsWindow.level != target else { return }
+        nsWindow.level = target
+        nsWindow.orderFrontRegardless()
+    }
+
+    /// 仅切换窗口层级（不改变播放状态）：宽限期到期恢复顶层让渐隐可见
+    func setOnTop(_ onTop: Bool) {
+        applyLevel(playing: onTop)
+    }
+
     func play() {
         if let queuePlayer {
             queuePlayer.play()
         } else {
             renderer?.startPlayback()
         }
+        applyLevel(playing: true)
     }
 
     func pause() {
@@ -81,6 +97,7 @@ final class WallpaperWindow: NSObject {
         } else {
             renderer?.stopPlayback()
         }
+        applyLevel(playing: false)
     }
 
     /// 向前跳指定帧数并暂停（循环回绕）
@@ -118,9 +135,13 @@ final class WallpaperWindow: NSObject {
         return renderer?.currentFrame ?? 0
     }
 
-    /// 渐隐后回调；回调时窗口恢复透明度并保持暂停在末帧
+    /// 渐隐后回调；回调时窗口恢复透明度并保持暂停在末帧。
+    /// 注意：渐隐期间不切换窗口层级，保持顶层完成淡出；
+    /// 退出完成后由调用方 pause() 将窗口降回桌面图标层级。
     func fadeOut(duration: TimeInterval, completion: @escaping () -> Void) {
-        pause()
+        // 暂停渲染但不走 pause()，避免提前降级窗口层级
+        queuePlayer?.pause()
+        renderer?.stopPlayback()
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)

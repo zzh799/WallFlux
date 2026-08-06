@@ -13,8 +13,9 @@ import Foundation
 final class IdleDetector: ObservableObject {
     /// 输入事件类型
     enum InputKind {
-        case mouseMoved   // 鼠标移动 / 点击 / 滚动
-        case keyPressed   // 键盘输入
+        case mouseMoved    // 纯鼠标移动（弱输入）：走短暂进入宽限机制
+        case mouseClicked  // 点击 / 拖拽 / 滚动（强输入）：立即响应，不走宽限
+        case keyPressed    // 键盘输入
     }
 
     /// 输入事件回调（主线程）
@@ -218,9 +219,11 @@ final class IdleDetector: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 self?.ensureTap()
             }
-        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
-             .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel:
+        case .mouseMoved:
             onInput?(.mouseMoved)
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
+             .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel:
+            onInput?(.mouseClicked)
         case .keyDown, .flagsChanged:
             onInput?(.keyPressed)
         default:

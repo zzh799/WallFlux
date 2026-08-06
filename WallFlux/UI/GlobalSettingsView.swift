@@ -37,6 +37,16 @@ struct GlobalSettingsView: View {
             }
 
             Section("退出方式") {
+                sliderRow(title: "短暂进入宽限期",
+                          value: Binding(
+                            get: { configStore.config.briefEntryGraceSeconds },
+                            set: { newValue in configStore.update { $0.briefEntryGraceSeconds = newValue } }
+                          ),
+                          range: 0...60, unit: "秒", step: 1)
+                Text("鼠标短暂进入播放中的显示器时，壁纸立即让位（暂停并降至窗口之下）；宽限期内鼠标移出或停止移动则恢复置顶播放，持续移动满宽限期才退出。设为 0 秒表示鼠标进入立即退出。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Picker("退出方式", selection: Binding(
                     get: { configStore.config.exitMode },
                     set: { newValue in configStore.update { $0.exitMode = newValue } }

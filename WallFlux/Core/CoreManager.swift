@@ -18,6 +18,9 @@ final class CoreManager: ObservableObject {
         didSet { screenManager.setPaused(isPaused) }
     }
 
+    /// 鼠标最近一次事件所在显示器的 displayID（用于检测鼠标移入/移出）
+    private var lastMouseDisplayID: String?
+
     private init() {}
 
     func start() {
@@ -42,11 +45,11 @@ final class CoreManager: ObservableObject {
         guard !isPaused else { return }
         switch kind {
         case .mouseMoved:
-            // 鼠标事件：仅标记鼠标所在显示器为活跃
-            let point = NSEvent.mouseLocation
-            if let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) {
-                screenManager.markInput(displayID: String(screen.fluxDisplayID))
-            }
+            // 纯移动（弱输入）：记录鼠标所在显示器变化，走短暂进入宽限机制
+            handleMouseMoved()
+        case .mouseClicked:
+            // 点击 / 拖拽 / 滚动（强输入）：立即标记鼠标所在显示器活跃，不走宽限
+            handleMouseClicked()
         case .keyPressed:
             // 键盘事件：优先标记焦点窗口所在显示器；AX 失败时逐级回退（鼠标位置 → 前台应用窗口），
             // 避免查询失败直接重置所有屏幕导致无输入屏幕无法进入闲置
@@ -63,6 +66,30 @@ final class CoreManager: ObservableObject {
                 screenManager.markInputAll()
             }
         }
+    }
+
+    /// 纯鼠标移动：鼠标移入新显示器时通知旧显示器移出；同一显示器内移动则刷新该显示器宽限状态
+    private func handleMouseMoved() {
+        guard let current = mouseLocationScreen() else { return }
+        if current != lastMouseDisplayID {
+            if let old = lastMouseDisplayID {
+                screenManager.mouseLeft(displayID: old)
+            }
+            lastMouseDisplayID = current
+        }
+        screenManager.mouseMoved(displayID: current)
+    }
+
+    /// 点击 / 拖拽 / 滚动：强交互，立即退出闲置（不等待宽限期）
+    private func handleMouseClicked() {
+        guard let current = mouseLocationScreen() else { return }
+        if current != lastMouseDisplayID {
+            if let old = lastMouseDisplayID {
+                screenManager.mouseLeft(displayID: old)
+            }
+            lastMouseDisplayID = current
+        }
+        screenManager.markInput(displayID: current)
     }
 
     /// 鼠标当前位置所在显示器的 displayID（无匹配时返回 nil）

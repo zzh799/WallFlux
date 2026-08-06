@@ -12,8 +12,8 @@ English | [简体中文](README_zh.md)
 - **Smart idle detection** - global mouse + keyboard monitoring; a display without input for N minutes (default 1, configurable) automatically starts playing its dynamic wallpaper
 - **Micro-step burn-in prevention** - on active displays the wallpaper is paused and advances Z frames every Y seconds, visually imperceptible but effective against OLED burn-in
 - **Three wallpaper sources** - macOS system dynamic wallpapers, local video files (mp4 / mov / webm), local image sequences (a folder of images, sorted by filename)
-- **Graceful exit** - configurable transition when you come back: instant stop or fade-out (0.5 s default)
-- **Desktop-layer rendering** - wallpaper windows sit below all app windows but above desktop icons, and let mouse events pass through
+- **Graceful exit** - configurable transition when you come back: instant stop or fade-out (0.5 s default); a mouse passing briefly over a playing display never interrupts the wallpaper - it goes back to top-layer playback as soon as the mouse leaves or stops
+- **Screen-saver-level playback** - while playing, the wallpaper window sits at the very top (screen saver layer); the moment the mouse enters, it drops to the desktop layer and yields the screen, never blocking your work
 - **Hot-plug aware** - connecting or disconnecting a display is detected automatically and its configuration is restored
 
 ## Requirements
@@ -56,14 +56,20 @@ open ./build/Build/Products/Release/WallFlux.app
 Each display runs a small state machine:
 
 ```
-active (micro-step) ── idle timeout ──▶ idle (looping wallpaper)
+active (micro-step) ── idle timeout ──▶ idle (looping wallpaper, on top)
       ▲                                     │
-      └──── user input ── exiting (fade out)┘
+      │                        mouse enters: wallpaper yields, grace period
+      │                                     │
+      │          ┌───── mouse leaves / stops → back to top-layer playback
+      │          │
+      │          └───── moving for the full grace period → exit
+      └──── exit ── exiting (fade out) ┘
 ```
 
 - **Idle detection** uses a global `CGEventTap`; the display under the mouse is always considered active, and keyboard input activates the display of the focused window.
+- **Brief-entry grace** (5 s default, adjustable in Settings): when the mouse enters a playing display the wallpaper immediately drops to the desktop layer and pauses, yielding the screen; if the mouse leaves or stops within the grace period, playback resumes on top. Clicks, scrolling and keyboard input exit immediately.
 - **Micro-step mode** pauses the wallpaper at its last frame and steps forward Z frames every Y seconds, so the panel never stays perfectly still (burn-in prevention) while looking static.
-- The wallpaper window runs at the desktop level (`kCGDesktopWindowLevel`), joins all Spaces, and ignores mouse events.
+- The wallpaper window runs at the screen saver level (`kCGScreenSaverWindowLevel`) while playing and drops to the desktop icon level (`kCGDesktopIconWindowLevel`) when paused, joins all Spaces, and ignores mouse events.
 
 See [docs/技术文档（Tech Design）.md](docs/技术文档（Tech Design）.md) for the full architecture, data flow, and state machine details.
 

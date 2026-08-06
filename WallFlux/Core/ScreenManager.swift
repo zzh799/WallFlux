@@ -60,9 +60,19 @@ final class ScreenManager: ObservableObject {
         contexts.removeAll()
     }
 
-    /// 鼠标输入：标记鼠标所在显示器活跃
+    /// 鼠标输入：标记鼠标所在显示器活跃（强输入：点击/拖拽/滚动/键盘）
     func markInput(displayID: String) {
         contexts.first { $0.displayID == displayID }?.inputDetected()
+    }
+
+    /// 纯鼠标移动（弱输入）：刷新该显示器的短暂进入宽限状态
+    func mouseMoved(displayID: String) {
+        contexts.first { $0.displayID == displayID }?.mouseMoved()
+    }
+
+    /// 鼠标移出该显示器：取消其短暂进入宽限，保持播放
+    func mouseLeft(displayID: String) {
+        contexts.first { $0.displayID == displayID }?.mouseLeft()
     }
 
     /// 键盘输入：所有显示器活跃
