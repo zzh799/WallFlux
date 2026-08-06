@@ -10,7 +10,7 @@ final class SettingsWindowController: NSWindowController {
         let window = NSWindow(contentViewController: hosting)
         window.title = "WallFlux 设置"
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.minSize = NSSize(width: 620, height: 440)
+        window.minSize = NSSize(width: 760, height: 480)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         super.init(window: window)
