@@ -156,18 +156,14 @@ final class AssetStore: ObservableObject {
         }
     }
 
-    /// 扫描系统自带壁纸：
-    /// 1. .wallpapers/ 目录下的动态壁纸视频（.mov，macOS 15+）
-    /// 2. .madesktop 描述文件指向的缩略图 .heic（Big Sur/Monterey 等经典动态壁纸）
-    /// 3. Desktop Pictures 根目录的 .heic（iMac 系列、Sonoma 等）
+    /// 扫描系统自带壁纸：/System/Library/Desktop Pictures/.wallpapers/ 目录下的动态壁纸视频
+    /// （.mov，macOS 15+ 的 Sequoia/Sonoma 系列）。
+    /// 不收录其余素材：.madesktop 描述文件只指向 UI 缩略图（单帧小图），根目录 .heic 为
+    /// 静态或明暗双帧变体，均无法作为动态壁纸循环播放。
     private func scanSystemWallpapers() {
-        let desktopPictures = URL(fileURLWithPath: "/System/Library/Desktop Pictures")
+        let wallpapersDir = URL(fileURLWithPath: "/System/Library/Desktop Pictures/.wallpapers", isDirectory: true)
         var videos: [WallpaperAsset] = []
-        var madesktopAssets: [WallpaperAsset] = []
-        var heicAssets: [WallpaperAsset] = []
 
-        // 1. 动态壁纸视频
-        let wallpapersDir = desktopPictures.appendingPathComponent(".wallpapers", isDirectory: true)
         if let folders = try? FileManager.default.contentsOfDirectory(at: wallpapersDir, includingPropertiesForKeys: nil) {
             for folder in folders where folder.hasDirectoryPath {
                 guard let contents = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else { continue }
@@ -184,37 +180,6 @@ final class AssetStore: ObservableObject {
         }
         videos.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 
-        // 2. .madesktop 描述文件
-        if let files = try? FileManager.default.contentsOfDirectory(at: desktopPictures, includingPropertiesForKeys: nil) {
-            for file in files where file.pathExtension.lowercased() == "madesktop" {
-                guard let dict = NSDictionary(contentsOf: file) as? [String: Any],
-                      let thumbPath = dict["thumbnailPath"] as? String else { continue }
-                let url = URL(fileURLWithPath: thumbPath)
-                guard FileManager.default.fileExists(atPath: url.path) else { continue }
-                madesktopAssets.append(WallpaperAsset(
-                    id: "system:\(url.lastPathComponent)",
-                    kind: .system,
-                    name: file.deletingPathExtension().lastPathComponent,
-                    url: url
-                ))
-            }
-        }
-        madesktopAssets.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-
-        // 3. 根目录 .heic
-        if let files = try? FileManager.default.contentsOfDirectory(at: desktopPictures, includingPropertiesForKeys: nil) {
-            for file in files where file.pathExtension.lowercased() == "heic" {
-                heicAssets.append(WallpaperAsset(
-                    id: "system:\(file.lastPathComponent)",
-                    kind: .system,
-                    name: file.deletingPathExtension().lastPathComponent,
-                    url: file
-                ))
-            }
-        }
-        heicAssets.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-
-        // 优先级：动态视频 > 经典动态壁纸（madesktop）> 静态 heic
-        systemAssets = videos + madesktopAssets + heicAssets
+        systemAssets = videos
     }
 }
