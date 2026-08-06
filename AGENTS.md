@@ -27,7 +27,7 @@
 - 图片序列：`NSImage` / `CALayer` + 定时器
 - 输入监控：`CGEventTap`（**需要辅助功能权限**）
 - 持久化：`UserDefaults` + Codable JSON
-- 分发：DMG + Homebrew Cask（**不走 Mac App Store**，沙盒限制）
+- 分发：DMG + Homebrew Cask（**不走 Mac App Store**，沙盒限制）；tap 仓库为 `zzh799/homebrew-WallFlux`（`Casks/wallflux.rb`）
 
 ## 架构分层
 
@@ -68,6 +68,7 @@ WallpaperEngine（壁纸窗口创建、视频/图片序列渲染、播放控制�
   - `build.yml`：push main / PR 时构建 Debug 验证，作为 CI 门禁。
   - `release.yml`：推送 `v*` 标签时构建 Release、打包 DMG（含 Applications 软链）并自动发布 GitHub Release；产物含 `WallFlux-<版本>.dmg`。
 - 发布新版本只需：`git tag v1.x.x && git push origin v1.x.x`，由 Actions 完成构建与发布，无需本地打包。
+- Homebrew cask 由 tap 仓库（`zzh799/homebrew-WallFlux`）的 `sync-cask.yml` 每 30 分钟自动同步：检测到新 Release 后下载 DMG 计算 sha256 并更新 cask，无需手动维护。安装命令：`brew install --cask zzh799/wallflux/wallflux`（Homebrew 对 tap/cask 名大小写敏感，必须全小写）。
 - 中英文用户文档为 `README.md`（英文）与 `README_zh.md`（中文），修改产品行为时同步更新。
 
 ## 构建与运行
