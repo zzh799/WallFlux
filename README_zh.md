@@ -23,6 +23,14 @@ WallFlux 是一款 macOS 14+（Sonoma 及以上）菜单栏常驻应用，能为
 
 ## 安装方式
 
+### Homebrew 安装
+
+```bash
+brew install --cask zzh799/wallflux/wallflux
+```
+
+cask 会随每次发布自动同步更新。
+
 ### 手动安装（DMG）
 
 从 [Releases 页面](https://github.com/zzh799/WallFlux/releases) 下载最新 DMG，打开后将 WallFlux.app 拖入「应用程序」文件夹。

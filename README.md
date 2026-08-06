@@ -23,6 +23,14 @@ English | [简体中文](README_zh.md)
 
 ## Installation
 
+### Homebrew
+
+```bash
+brew install --cask zzh799/wallflux/wallflux
+```
+
+The cask is auto-synced with each release.
+
 ### Manual (DMG)
 
 Download the latest DMG from the [Releases page](https://github.com/zzh799/WallFlux/releases), open it, and drag WallFlux.app into your Applications folder.
