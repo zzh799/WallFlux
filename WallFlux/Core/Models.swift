@@ -42,6 +42,21 @@ enum ExitMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// 壁纸配置方式（FR-12）
+enum WallpaperConfigMode: String, Codable, CaseIterable, Identifiable {
+    case allDisplays = "allDisplays"   // 所有显示器使用同一壁纸
+    case perDisplay = "perDisplay"     // 逐显示器单独设置
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .allDisplays: return "所有显示器"
+        case .perDisplay: return "单独设置"
+        }
+    }
+}
+
 /// 显示器运行状态
 enum DisplayState {
     case active
@@ -59,11 +74,38 @@ enum DisplayState {
 
 /// 全局应用配置（UserDefaults + JSON 持久化）
 struct AppConfig: Codable, Equatable {
-    var idleTimeoutMinutes: Double = 5          // 闲置判定超时 N（分钟）
-    var microStepIntervalSeconds: Double = 15   // 微跳间隔 Y（秒）
-    var microStepFrameCount: Int = 1            // 微跳帧数 Z
-    var exitMode: ExitMode = .fadeOut           // 退出方式
-    var displayConfigs: [DisplayConfig] = []    // 逐显示器配置
+    var idleTimeoutMinutes: Double = 1           // 闲置判定超时 N（分钟）
+    var microStepIntervalSeconds: Double = 30    // 微跳间隔 Y（秒）
+    var microStepFrameCount: Int = 10            // 微跳帧数 Z
+    var exitMode: ExitMode = .immediate          // 退出方式
+    /// 壁纸配置方式：所有显示器共享 / 逐显示器单独设置
+    var wallpaperConfigMode: WallpaperConfigMode = .allDisplays
+    /// 所有显示器模式下共享的壁纸类型与素材
+    var sharedWallpaperType: WallpaperType = .system
+    var sharedWallpaperAssetID: String = "system:.wallpapers/Sequoia Sunrise/Sequoia Sunrise.mov"
+    var displayConfigs: [DisplayConfig] = []    // 逐显示器配置（含各显示器帧位置）
+}
+
+// 兼容旧版本持久化数据：新增字段缺失时回退默认值
+// （合成 Codable 对缺失键直接抛错，不能依赖属性默认值）
+extension AppConfig {
+    private enum CodingKeys: String, CodingKey {
+        case idleTimeoutMinutes, microStepIntervalSeconds, microStepFrameCount, exitMode
+        case wallpaperConfigMode, sharedWallpaperType, sharedWallpaperAssetID
+        case displayConfigs
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        idleTimeoutMinutes = try c.decodeIfPresent(Double.self, forKey: .idleTimeoutMinutes) ?? 1
+        microStepIntervalSeconds = try c.decodeIfPresent(Double.self, forKey: .microStepIntervalSeconds) ?? 30
+        microStepFrameCount = try c.decodeIfPresent(Int.self, forKey: .microStepFrameCount) ?? 10
+        exitMode = try c.decodeIfPresent(ExitMode.self, forKey: .exitMode) ?? .immediate
+        wallpaperConfigMode = try c.decodeIfPresent(WallpaperConfigMode.self, forKey: .wallpaperConfigMode) ?? .allDisplays
+        sharedWallpaperType = try c.decodeIfPresent(WallpaperType.self, forKey: .sharedWallpaperType) ?? .system
+        sharedWallpaperAssetID = try c.decodeIfPresent(String.self, forKey: .sharedWallpaperAssetID) ?? "system:.wallpapers/Sequoia Sunrise/Sequoia Sunrise.mov"
+        displayConfigs = try c.decodeIfPresent([DisplayConfig].self, forKey: .displayConfigs) ?? []
+    }
 }
 
 /// 单个显示器的配置，以显示器唯一 ID 标识（热插拔后按 ID 恢复）

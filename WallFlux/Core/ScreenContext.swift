@@ -213,8 +213,18 @@ final class ScreenContext: ObservableObject, Identifiable {
     }
 
     private func resolveAsset() -> WallpaperAsset? {
-        let type = displayConfig.wallpaperType
-        if let asset = assetStore.asset(id: displayConfig.wallpaperAssetID), asset.kind == type.assetKind {
+        let config = configStore.config
+        let type: WallpaperType
+        let assetID: String
+        if config.wallpaperConfigMode == .allDisplays {
+            // 所有显示器模式：统一使用共享壁纸配置
+            type = config.sharedWallpaperType
+            assetID = config.sharedWallpaperAssetID
+        } else {
+            type = displayConfig.wallpaperType
+            assetID = displayConfig.wallpaperAssetID
+        }
+        if let asset = assetStore.asset(id: assetID), asset.kind == type.assetKind {
             return asset
         }
         return assetStore.fallbackAsset(for: type.assetKind)

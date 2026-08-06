@@ -22,7 +22,7 @@
 │  ┌──────────┐  ┌──────────────────────────┐  │
 │  │ MenuBar  │  │   SettingsWindow (SwiftUI) │  │
 │  │ Controller│  │   - 全局设置              │  │
-│  │ (SwiftUI) │  │   - 逐显示器壁纸设置      │  │
+│  │ (SwiftUI) │  │   - 显示器壁纸设置        │  │
 │  │          │  │   - 素材管理              │  │
 │  └────┬─────┘  └───────────┬──────────────┘  │
 │       │                    │                  │
@@ -113,16 +113,22 @@ AppConfig {
     microStepIntervalSeconds: Double  // 微跳间隔 Y
     microStepFrameCount: Int      // 微跳帧数 Z
     exitMode: ExitMode            // .immediate / .fadeOut
-    displayConfigs: [DisplayConfig]
+    wallpaperConfigMode: WallpaperConfigMode  // .allDisplays / .perDisplay
+    sharedWallpaperType: WallpaperType        // 所有显示器模式下的共享类型
+    sharedWallpaperAssetID: String            // 所有显示器模式下的共享素材 ID
+    displayConfigs: [DisplayConfig]           // 逐显示器配置（含各显示器帧位置）
 }
 
 DisplayConfig {
     displayID: String             // 显示器唯一标识
-    wallpaperType: WallpaperType  // .system / .video / .imageSequence
-    wallpaperAssetID: String      // 素材 ID
-    lastFramePosition: Int        // 上次退出帧位置
+    wallpaperType: WallpaperType  // .system / .video / .imageSequence（仅单独设置模式生效）
+    wallpaperAssetID: String      // 素材 ID（仅单独设置模式生效）
+    lastFramePosition: Int        // 上次退出帧位置（两种模式均按显示器独立记录）
 }
 ```
+
+- 壁纸解析规则：`wallpaperConfigMode == .allDisplays` 时所有显示器统一使用 `sharedWallpaperType` / `sharedWallpaperAssetID`（素材缺失时回退到该类型第一个可用素材）；`.perDisplay` 时各显示器使用自己的 `DisplayConfig`。
+- 兼容性：`AppConfig` 自定义 `init(from:)`，旧版本持久化数据缺少新增字段时回退默认值（合成 Codable 对缺失键会抛错，不能依赖属性默认值）。
 
 #### 3.5 AssetStore — 素材管理
 

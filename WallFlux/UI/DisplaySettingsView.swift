@@ -1,33 +1,31 @@
 import AppKit
 import SwiftUI
 
-/// 逐显示器设置（FR-12）：壁纸来源选择 + 素材选择 + 预览
+/// 显示器壁纸设置（FR-12）：所有显示器共享 / 逐显示器单独设置
 struct DisplaySettingsView: View {
     @ObservedObject private var core: CoreManager
     @ObservedObject private var screenManager: ScreenManager
-    @State private var selectedDisplayID: String?
+    @ObservedObject private var configStore: ConfigStore
+    /// 当前选择的显示器 ID；空字符串表示未选择（视图会自动回退到第一个显示器）
+    @State private var selectedDisplayID = ""
     @State private var previewImage: NSImage?
 
     init(core: CoreManager = CoreManager.shared) {
         self.core = core
         self.screenManager = core.screenManager
+        self.configStore = core.configStore
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            if screenManager.contexts.isEmpty {
+        VStack(alignment: .leading, spacing: 16) {
+            modePicker
+
+            if configStore.config.wallpaperConfigMode == .allDisplays {
+                sharedSettingsForm
+            } else if screenManager.contexts.isEmpty {
                 emptyState
             } else {
-                Picker("显示器", selection: $selectedDisplayID) {
-                    ForEach(screenManager.contexts) { context in
-                        Text(displayLabel(for: context)).tag(context.displayID)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .frame(maxWidth: 340, alignment: .leading)
-                .accessibilityLabel("选择显示器")
-
+                displayPicker
                 if let context = selectedContext {
                     settingsForm(for: context)
                         .id(context.displayID)
@@ -37,17 +35,45 @@ struct DisplaySettingsView: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
-            if selectedDisplayID == nil {
-                selectedDisplayID = screenManager.contexts.first?.displayID
-            }
+            ensureValidSelection()
             loadPreview()
         }
+        .onChange(of: screenManager.contexts.map(\.displayID)) { _, _ in
+            ensureValidSelection()
+        }
         .onChange(of: selectedDisplayID) { _, _ in
+            loadPreview()
+        }
+        .onChange(of: configStore.config.wallpaperConfigMode) { _, _ in
+            ensureValidSelection()
             loadPreview()
         }
     }
 
     // MARK: - 子视图
+
+    /// 配置方式单选：所有显示器 / 单独设置
+    private var modePicker: some View {
+        Picker("壁纸配置方式", selection: wallpaperModeBinding) {
+            ForEach(WallpaperConfigMode.allCases) { mode in
+                Text(mode.displayName).tag(mode)
+            }
+        }
+        .pickerStyle(.radioGroup)
+        .accessibilityLabel("壁纸配置方式")
+    }
+
+    private var displayPicker: some View {
+        Picker("显示器", selection: $selectedDisplayID) {
+            ForEach(screenManager.contexts) { context in
+                Text(displayLabel(for: context)).tag(context.displayID)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .frame(maxWidth: 340, alignment: .leading)
+        .accessibilityLabel("选择显示器")
+    }
 
     private var emptyState: some View {
         VStack(spacing: 12) {
@@ -62,6 +88,41 @@ struct DisplaySettingsView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 所有显示器模式：共享壁纸配置，编辑一次应用到全部显示器
+    private var sharedSettingsForm: some View {
+        Form {
+            Section("壁纸来源") {
+                Picker("壁纸类型", selection: sharedTypeBinding) {
+                    ForEach(WallpaperType.allCases) { type in
+                        Text(type.displayName).tag(type)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+
+                Picker("壁纸素材", selection: sharedAssetBinding) {
+                    ForEach(sharedAssetOptions) { asset in
+                        Text(asset.name).tag(asset.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .disabled(sharedAssetOptions.isEmpty)
+                .accessibilityLabel("壁纸素材")
+
+                Text("所有显示器将使用同一壁纸，新接入的显示器自动沿用。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("预览") {
+                previewBox
+            }
+        }
+        .formStyle(.grouped)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -124,9 +185,60 @@ struct DisplaySettingsView: View {
     // MARK: - 数据
 
     private var selectedContext: ScreenContext? {
-        guard let id = selectedDisplayID else { return nil }
-        return screenManager.context(for: id)
+        guard !selectedDisplayID.isEmpty else { return nil }
+        return screenManager.context(for: selectedDisplayID)
     }
+
+    /// 配置方式切换绑定（写入 ConfigStore 并触发壁纸刷新）
+    private var wallpaperModeBinding: Binding<WallpaperConfigMode> {
+        Binding(
+            get: { configStore.config.wallpaperConfigMode },
+            set: { newMode in
+                configStore.update { $0.wallpaperConfigMode = newMode }
+            }
+        )
+    }
+
+    // MARK: 所有显示器模式
+
+    private var sharedAssetOptions: [WallpaperAsset] {
+        core.assetStore.assets(for: configStore.config.sharedWallpaperType.assetKind)
+    }
+
+    private var sharedTypeBinding: Binding<WallpaperType> {
+        Binding(
+            get: { configStore.config.sharedWallpaperType },
+            set: { newType in
+                let fallbackID = core.assetStore.fallbackAsset(for: newType.assetKind)?.id ?? ""
+                configStore.update { config in
+                    config.sharedWallpaperType = newType
+                    config.sharedWallpaperAssetID = fallbackID
+                    // 壁纸已变更：所有显示器从头播放
+                    for idx in config.displayConfigs.indices {
+                        config.displayConfigs[idx].lastFramePosition = 0
+                    }
+                }
+                refreshPreviewSoon()
+            }
+        )
+    }
+
+    private var sharedAssetBinding: Binding<String> {
+        Binding(
+            get: { configStore.config.sharedWallpaperAssetID },
+            set: { newID in
+                configStore.update { config in
+                    config.sharedWallpaperAssetID = newID
+                    for idx in config.displayConfigs.indices {
+                        config.displayConfigs[idx].lastFramePosition = 0
+                    }
+                }
+                refreshPreviewSoon()
+            }
+        )
+    }
+
+    // MARK: 单独设置模式
 
     private var assetOptions: [WallpaperAsset] {
         guard let type = selectedContext?.displayConfig.wallpaperType else { return [] }
@@ -136,12 +248,12 @@ struct DisplaySettingsView: View {
     private var wallpaperTypeBinding: Binding<WallpaperType> {
         Binding(
             get: {
-                guard let id = selectedDisplayID else { return .system }
-                return core.configStore.config.displayConfigs.first { $0.displayID == id }?.wallpaperType ?? .system
+                guard !selectedDisplayID.isEmpty else { return .system }
+                return currentDisplayConfig(for: selectedDisplayID).wallpaperType
             },
             set: { newType in
-                guard let id = selectedDisplayID else { return }
-                var dc = currentDisplayConfig(for: id)
+                guard !selectedDisplayID.isEmpty else { return }
+                var dc = currentDisplayConfig(for: selectedDisplayID)
                 dc.wallpaperType = newType
                 dc.wallpaperAssetID = core.assetStore.fallbackAsset(for: newType.assetKind)?.id ?? ""
                 dc.lastFramePosition = 0
@@ -154,18 +266,28 @@ struct DisplaySettingsView: View {
     private var wallpaperAssetBinding: Binding<String> {
         Binding(
             get: {
-                guard let id = selectedDisplayID else { return "" }
-                return core.configStore.config.displayConfigs.first { $0.displayID == id }?.wallpaperAssetID ?? ""
+                guard !selectedDisplayID.isEmpty else { return "" }
+                return currentDisplayConfig(for: selectedDisplayID).wallpaperAssetID
             },
             set: { newID in
-                guard let id = selectedDisplayID else { return }
-                var dc = currentDisplayConfig(for: id)
+                guard !selectedDisplayID.isEmpty else { return }
+                var dc = currentDisplayConfig(for: selectedDisplayID)
                 dc.wallpaperAssetID = newID
                 dc.lastFramePosition = 0
                 core.configStore.updateDisplayConfig(dc)
                 refreshPreviewSoon()
             }
         )
+    }
+
+    /// 当前生效的壁纸选择（按配置方式解析）
+    private func currentWallpaperSelection() -> (type: WallpaperType, assetID: String) {
+        if configStore.config.wallpaperConfigMode == .allDisplays {
+            return (configStore.config.sharedWallpaperType, configStore.config.sharedWallpaperAssetID)
+        }
+        guard !selectedDisplayID.isEmpty else { return (.system, "") }
+        let dc = currentDisplayConfig(for: selectedDisplayID)
+        return (dc.wallpaperType, dc.wallpaperAssetID)
     }
 
     private func currentDisplayConfig(for id: String) -> DisplayConfig {
@@ -177,17 +299,28 @@ struct DisplaySettingsView: View {
         return "\(context.screen.localizedName)（\(Int(size.width))×\(Int(size.height))）"
     }
 
+    /// 确保选中项有效：显示器热插拔或列表变化后，失效的选中项自动回退到第一个显示器
+    private func ensureValidSelection() {
+        let ids = screenManager.contexts.map(\.displayID)
+        guard !ids.isEmpty else {
+            if !selectedDisplayID.isEmpty { selectedDisplayID = "" }
+            return
+        }
+        if !ids.contains(selectedDisplayID) {
+            selectedDisplayID = ids[0]
+        }
+    }
+
     private func refreshPreviewSoon() {
         DispatchQueue.main.async { loadPreview() }
     }
 
     private func loadPreview() {
         previewImage = nil
-        guard let id = selectedDisplayID else { return }
-        let dc = core.configStore.config.displayConfigs.first { $0.displayID == id } ?? DisplayConfig(displayID: id)
-        if let asset = core.assetStore.asset(id: dc.wallpaperAssetID) {
+        let (type, assetID) = currentWallpaperSelection()
+        if let asset = core.assetStore.asset(id: assetID) {
             previewImage = ThumbnailProvider.thumbnail(for: asset)
-        } else if let fallback = core.assetStore.fallbackAsset(for: dc.wallpaperType.assetKind) {
+        } else if let fallback = core.assetStore.fallbackAsset(for: type.assetKind) {
             previewImage = ThumbnailProvider.thumbnail(for: fallback)
         }
     }
