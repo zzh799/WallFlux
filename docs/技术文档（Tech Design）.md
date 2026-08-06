@@ -1,233 +1,216 @@
-# 动态壁纸配置程序 — 技术文档（Tech Design）
 
-## 1. 技术栈
+## 技术设计文档
 
-| 层 | 技术 |
-|----|------|
-| UI 框架 | SwiftUI（菜单栏、设置窗口） |
-| 底层桥接 | AppKit（壁纸窗口、窗口层级控制） |
-| 视频渲染 | AVFoundation + VideoToolbox（硬件解码） |
-| 输入监控 | CGEvent（Core Graphics 事件监听） |
-| 显示器管理 | NSScreen + CGDisplay |
-| 配置持久化 | UserDefaults / plist |
-| 语言 | Swift 5.9+ |
-| 最低系统 | macOS 14.0 |
-| 打包 | DMG + Homebrew Cask |
+### 1. 技术栈
 
----
+| 层 | 技术选型 |
+|----|----------|
+| UI 层（菜单栏 + 设置） | SwiftUI |
+| 底层窗口管理 | AppKit（NSWindow, NSScreen） |
+| 视频播放 | AVFoundation（AVPlayer, AVPlayerLayer） |
+| 图片序列播放 | CoreAnimation / 手动帧切换 |
+| 输入监控 | CGEvent（CGEventTap）或 IOKit HID |
+| 存储 | UserDefaults + Codable（配置文件） |
+| 构建 | Xcode 15+, Swift 5.9+ |
+| 分发 | DMG + Homebrew Cask |
 
-## 2. 架构设计
-
-### 2.1 模块划分
+### 2. 系统架构
 
 ```
-App/
-├── MenuBar/                    # 菜单栏入口
-│   ├── AppDelegate.swift       # NSApplicationDelegate
-│   └── MenuBarView.swift       # 菜单栏 SwiftUI 视图
-├── Settings/                   # 配置窗口
-│   ├── SettingsWindow.swift    # NSWindow + HostingController
-│   ├── SettingsView.swift      # SwiftUI 设置界面
-│   └── MonitorConfigView.swift # 单显示器配置行
-├── Wallpaper/                  # 壁纸引擎核心
-│   ├── WallpaperEngine.swift   # 引擎总控（协调所有显示器）
-│   ├── MonitorWallpaper.swift  # 单显示器壁纸管理器
-│   ├── WallpaperWindow.swift   # AppKit 壁纸覆盖窗口
-│   ├── VideoRenderer.swift     # AVPlayer 视频渲染
-│   ├── ImageSequenceRenderer.swift # 图片序列渲染
-│   └── WallpaperSource.swift   # 壁纸素材模型
-├── InputMonitor/               # 输入监控
-│   ├── InputMonitor.swift      # CGEvent 全局事件监听
-│   └── IdleDetector.swift      # 闲置判定逻辑
-├── DisplayManager/             # 显示器管理
-│   ├── DisplayManager.swift    # NSScreen 监听 + 热插拔
-│   └── DisplayIdentity.swift   # 显示器唯一标识
-├── Configuration/              # 配置管理
-│   ├── AppConfig.swift         # 全局配置模型
-│   └── ConfigStore.swift       # UserDefaults 读写
-└── Distribution/               # 分发
-    ├── DMG/
-    └── Homebrew/
+┌──────────────────────────────────────────────┐
+│                   MenuBarApp                  │
+│  ┌──────────┐  ┌──────────────────────────┐  │
+│  │ MenuBar  │  │   SettingsWindow (SwiftUI) │  │
+│  │ Controller│  │   - 全局设置              │  │
+│  │ (SwiftUI) │  │   - 逐显示器壁纸设置      │  │
+│  │          │  │   - 素材管理              │  │
+│  └────┬─────┘  └───────────┬──────────────┘  │
+│       │                    │                  │
+│  ┌────┴────────────────────┴──────────────┐   │
+│  │           CoreManager                   │   │
+│  │  - 显示器管理 (ScreenManager)           │   │
+│  │  - 闲置检测 (IdleDetector)             │   │
+│  │  - 配置管理 (ConfigStore)              │   │
+│  │  - 素材管理 (AssetStore)               │   │
+│  └────┬───────────────────────────────────┘   │
+│       │                                       │
+│  ┌────┴───────────────────────────────────┐   │
+│  │          WallpaperEngine                │   │
+│  │  - 窗口创建/销毁 (AppKit NSWindow)      │   │
+│  │  - 视频渲染 (AVPlayer)                 │   │
+│  │  - 图片序列渲染                        │   │
+│  │  - 播放控制 (播放/暂停/跳帧)            │   │
+│  └────────────────────────────────────────┘   │
+└──────────────────────────────────────────────┘
 ```
 
-### 2.2 核心类图（简略）
+### 3. 核心模块设计
+
+#### 3.1 ScreenManager — 显示器管理器
+
+- 职责：管理所有在线显示器的状态与壁纸窗口生命周期
+- 关键能力：
+  - 启动时枚举所有 NSScreen，为每个创建 ScreenContext
+  - 监听 `NSApplication.didChangeScreenParametersNotification` 处理热插拔
+  - 通过显示器唯一 ID（`NSScreen.displayID` 或序列号）匹配配置
+  - 为每个显示器维护状态机：`active` / `idle` / `microStep`
+
+- 数据结构：
+  - `ScreenContext`：绑定 NSScreen 实例、当前壁纸窗口引用、当前状态、配置引用、闲置计时器、微跳计时器
+
+#### 3.2 IdleDetector — 闲置检测器
+
+- 职责：监控全局输入事件，判定各显示器的活跃/闲置状态
+- 关键能力：
+  - 通过 `CGEvent.tapCreate` 监听全局鼠标移动和键盘事件
+  - 鼠标事件：获取鼠标当前位置 `NSEvent.mouseLocation`，通过 `NSScreen.screens` 遍历判断落在哪个显示器，将该显示器标记为活跃
+  - 键盘事件：所有显示器标记为活跃
+  - 活跃事件发生后，重置对应显示器的闲置倒计时器
+  - 闲置倒计时到期后，通知 ScreenManager 将对应显示器切换为 idle
+
+- 注意事项：
+  - `CGEventTap` 需要辅助功能权限，应用需引导用户授权
+  - 必须处理事件 tap 被系统终止后的重连
+
+#### 3.3 WallpaperEngine — 壁纸引擎
+
+- 职责：管理桌面层级覆盖窗口，负责视频和图片序列的渲染与播放控制
+- 窗口创建（AppKit）：
+  - 为每个目标显示器创建 `NSWindow`
+  - 设置 `level = kCGDesktopWindowLevel`（桌面图标层之上，Dock/普通窗口之下）
+  - 设置 `collectionBehavior = [.canJoinAllSpaces, .stationary]`（跟随 Spaces 切换）
+  - 窗口无边框、全屏覆盖目标 NSScreen 的 frame
+  - 设置 `ignoresMouseEvents = true`（不拦截鼠标事件）
+  - 背景色为黑色（视频未加载时）
+
+- 视频渲染：
+  - 使用 `AVPlayer` + `AVPlayerLayer` 嵌入窗口的 contentView
+  - 支持循环播放（`AVPlayerLooper` 或监听播放结束事件）
+  - 支持精确暂停/跳帧（`seek(to:)` 方法）
+  - 支持淡入淡出（窗口 alpha 动画）
+
+- 图片序列渲染：
+  - 按文件名排序加载图片序列
+  - 使用定时器按帧率切换 `NSImageView` 或 `CALayer.contents`
+  - 支持暂停/跳帧
+
+- 播放控制接口：
+  - `play()`：开始循环播放
+  - `pause()`：暂停在当前帧
+  - `stepForward(frames:)`：向前跳指定帧数并暂停
+  - `fadeOut(duration:completion:)`：渐隐并销毁窗口
+  - `currentFrame: Int`：当前帧序号（视频需换算帧号）
+
+#### 3.4 ConfigStore — 配置管理
+
+- 职责：持久化存储用户配置
+- 存储方案：`UserDefaults` + JSON 编码的 Codable 结构体
+- 配置结构：
 
 ```
-WallpaperEngine (1) ──────── (N) MonitorWallpaper
-     │                               │
-     │ owns                          │ owns
-     ▼                               ▼
-InputMonitor                    WallpaperWindow (NSWindow, kCGDesktopWindowLevel)
-IdleDetector                         │
-     │                               │ contains
-     │                               ▼
-     └────────── uses ────────▶ AVPlayer / ImageSequencePlayer
-```
+AppConfig {
+    idleTimeoutMinutes: Double    // 闲置阈值 N
+    microStepIntervalSeconds: Double  // 微跳间隔 Y
+    microStepFrameCount: Int      // 微跳帧数 Z
+    exitMode: ExitMode            // .immediate / .fadeOut
+    displayConfigs: [DisplayConfig]
+}
 
----
-
-## 3. 关键实现细节
-
-### 3.1 壁纸窗口
-
-```swift
-// 窗口层级：桌面图标之上，普通窗口之下
-window.level = NSWindow.Level(rawValue: kCGDesktopWindowLevel)
-
-// 覆盖整个目标显示器
-window.setFrame(screen.frame, display: true)
-
-// 无视鼠标事件（点击穿透到桌面图标/窗口）
-window.ignoresMouseEvents = true
-
-// 无标题栏、无阴影、不可移动
-window.styleMask = [.borderless]
-window.isOpaque = true
-window.backgroundColor = .black
-window.hasShadow = false
-```
-
-### 3.2 闲置判定算法
-
-```
-1. 全局监听 CGEvent（mouseMoved, keyDown 等）
-2. 每次事件时：
-   a. 记录事件时间戳
-   b. 如果是鼠标事件：获取鼠标位置 → NSScreen.screens 中确认所在显示器 → 该显示器标记活跃
-   c. 如果是键盘事件：所有显示器标记活跃
-3. 每 1 秒轮询检查：
-   - 对每个显示器：计算 (当前时间 - 该显示器最后活跃时间)
-   - 若超过闲置阈值 && 当前非闲置 → 触发壁纸播放
-   - 若低于阈值 && 当前是闲置 → 触发壁纸退出
-```
-
-### 3.3 微跳模式
-
-```
-活跃显示器状态机：
-IDLE_PLAYING → (用户回来) → MICRO_STEPPING
-
-MICRO_STEPPING 模式：
-- AVPlayer.rate = 0（暂停）
-- Timer 每 Y 秒触发：
-  1. 记录当前 CMTime
-  2. seek(to: currentTime + Z 帧对应时长)
-  3. 等待 seek 完成（异步），期间保持暂停
-  4. 立即再次暂停（确保只显示一帧）
-```
-
-### 3.4 显示器 ID 方案
-
-```swift
-// 用于记住配置的唯一标识
-struct DisplayIdentity: Codable, Hashable {
-    let vendorNumber: UInt32    // CGDisplayVendorNumber
-    let modelNumber: UInt32     // CGDisplayModelNumber
-    let serialNumber: UInt32    // CGDisplaySerialNumber
-    // 若三者相同（如同型号），追加 displayIndex 区分
-    let displayIndex: Int
+DisplayConfig {
+    displayID: String             // 显示器唯一标识
+    wallpaperType: WallpaperType  // .system / .video / .imageSequence
+    wallpaperAssetID: String      // 素材 ID
+    lastFramePosition: Int        // 上次退出帧位置
 }
 ```
 
-### 3.5 输入监控权限
+#### 3.5 AssetStore — 素材管理
 
-需要 `kAXTrustedCheckOptionPrompt` 申请辅助功能权限。不使用 IOKit 隐藏 API。
+- 职责：管理壁纸素材的导入、存储和索引
+- 素材存储位置：`~/Library/Application Support/DeskMotion/Assets/`
+- 素材类型：
+  - `SystemWallpaper`：枚举 macOS 系统自带动态壁纸路径
+  - `VideoAsset`：用户导入的视频文件（复制到素材目录）
+  - `ImageSequenceAsset`：用户导入的图片文件夹
+- 元数据以 JSON 文件存储在素材目录中
 
-### 3.6 配置数据结构
+### 4. 状态机
 
-```swift
-struct AppConfig: Codable {
-    var idleTimeoutMinutes: Int = 5       // 闲置阈值
-    var microStepIntervalSeconds: Int = 15 // 微跳间隔
-    var microStepFrames: Int = 1           // 每次跳帧数
-    var exitTransition: ExitTransition = .fadeOut(duration: 0.8) // 退出方式
-    var launchAtLogin: Bool = true
-}
-
-struct MonitorConfig: Codable {
-    var displayID: DisplayIdentity
-    var wallpaperSource: WallpaperSource   // 系统/视频/图片序列
-}
-
-struct WallpaperSource: Codable {
-    enum SourceType: String, Codable {
-        case systemBuiltIn             // 系统动态桌面
-        case localVideo(path: String)  // 本地视频
-        case imageSequence(path: String, fps: Int) // 图片序列
-    }
-}
-```
-
----
-
-## 4. 渲染管线
+每个显示器的状态流转：
 
 ```
-                    ┌──────────────────────┐
-                    │   WallpaperEngine     │
-                    │  (协调者，持有所有      │
-                    │   MonitorWallpaper)    │
-                    └──────┬───────────────┘
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-        MonitorWP-1  MonitorWP-2  MonitorWP-3
-              │            │            │
-              ▼            ▼            ▼
-        WallpaperWindow  (每个显示器一个 NSWindow)
-              │
-     ┌────────┼────────┐
-     ▼                 ▼
-  AVPlayer        ImageSequencePlayer
- (视频源)          (图片序列源)
-     │                 │
-     ▼                 ▼
-  VideoToolbox     CGImage/CALayer
-  (硬件解码)        (逐帧渲染)
+        ┌──────────┐
+        │  active   │ ← 用户在此显示器有输入
+        │ (微跳中)  │
+        └─────┬─────┘
+              │ 闲置倒计时到期
+              ▼
+        ┌──────────┐
+        │   idle    │ ← 开始循环播放壁纸
+        │ (播放中)  │
+        └─────┬─────┘
+              │ 检测到用户输入（鼠标移至该屏/键盘操作）
+              ▼
+        ┌──────────┐
+        │  exiting  │ ← 执行退出动画（立即/渐隐）
+        │ (退出中)  │
+        └─────┬─────┘
+              │ 退出完成，记录当前帧位置
+              ▼
+        ┌──────────┐
+        │  active   │ ← 恢复微跳模式，从记录帧开始
+        └──────────┘
 ```
 
----
-
-## 5. 数据流
+### 5. 数据流
 
 ```
-CGEvent (鼠标/键盘)
+用户输入 (鼠标/键盘)
     │
     ▼
-InputMonitor ──▶ IdleDetector ──▶ WallpaperEngine
-                                      │
-                    ┌─────────────────┼──────────────────┐
-                    ▼                 ▼                  ▼
-            MonitorWallpaper   MonitorWallpaper   MonitorWallpaper
-              (Displays A)      (Displays B)       (Displays C)
-                    │                 │                  │
-              ┌─────┴─────┐     ┌─────┴─────┐      ┌─────┴─────┐
-              ▼           ▼     ▼           ▼      ▼           ▼
-          idlePlay   microStep  idlePlay   microStep  idlePlay   microStep
+IdleDetector (CGEventTap)
+    │
+    ├── 鼠标事件 → 计算所在 NSScreen → 标记活跃 + 重置计时器
+    ├── 键盘事件 → 所有 NSScreen 标记活跃 + 重置计时器
+    │
+    ▼
+ScreenManager
+    │
+    ├── 某屏闲置计时器到期 → 切换为 idle
+    │       └── WallpaperEngine.play() → 循环播放
+    │
+    ├── 某屏从 idle 变为活跃 → 切换为 exiting
+    │       └── WallpaperEngine.fadeOut() or 立即停止
+    │       └── 记录 currentFrame
+    │
+    └── 某屏进入 active（微跳）
+            └── WallpaperEngine.pause() + 定时 stepForward()
 ```
 
----
+### 6. 关键 API / 框架依赖
 
-## 6. 风险与对策
+| 用途 | API / 框架 |
+|------|-----------|
+| 显示器枚举与监听 | `NSScreen`, `didChangeScreenParametersNotification` |
+| 桌面层级窗口 | `NSWindow`, `CGWindowLevelKey.desktopWindow` |
+| 全局输入事件 | `CGEvent.tapCreate`, 辅助功能权限 |
+| 视频播放 | `AVFoundation` (AVPlayer, AVPlayerLayer, AVPlayerLooper) |
+| 图片序列 | `NSImage` + 定时器 |
+| 窗口动画 | `NSAnimationContext` / `NSWindow.animator().alphaValue` |
+| 持久化 | `UserDefaults` + JSONEncoder/JSONDecoder |
 
-| 风险 | 影响 | 对策 |
-|------|------|------|
-| `kCGDesktopWindowLevel` 在 macOS 新版本变化 | 壁纸层级不正确 | 增加运行时检测，fallback 到 `kCGDesktopIconWindowLevel - 1` |
-| AVPlayer seek 精度不足 | 跳帧不精确 | 使用 `seek(toleranceBefore: .zero, toleranceAfter: .zero)` |
-| 同型号显示器 ID 冲突 | 配置错乱 | 追加 displayIndex 降级区分 |
-| 系统动态壁纸 API 限制 | 无法逐帧控制 | 对系统壁纸仅在闲置时全屏循环，微跳时不使用系统壁纸 |
-| 辅助功能权限申请被拒 | 无法监控输入 | 启动时引导用户开启，否则退化为全局闲置判定 |
+### 7. 权限要求
 
----
+| 权限 | 用途 | 获取方式 |
+|------|------|----------|
+| 辅助功能权限 | 全局输入事件监控 | 引导用户至「系统设置 → 隐私与安全性 → 辅助功能」 |
+| 文件访问权限 | 导入壁纸素材 | 使用 NSOpenPanel（无需额外权限） |
 
-## 7. 开发阶段
+### 8. 风险与待确认事项
 
-| 阶段 | 内容 | 预估工作量 |
-|------|------|-----------|
-| P0 - 原型 | 壁纸窗口 + 视频播放 + 单显示器闲置循环 | 3-5 天 |
-| P1 - 核心 | 输入监控 + 多显示器 + 闲置/活跃切换 + 微跳 | 5-7 天 |
-| P2 - 配置 | 设置界面 + 配置持久化 + 素材导入 | 3-5 天 |
-| P3 - 体验 | 菜单栏 + 热插拔 + 渐隐过渡 + 登录自启 | 3-4 天 |
-| P4 - 分发 | DMG 打包 + Homebrew Cask + 签名公证 | 2-3 天 |
-
----
+| 风险 | 影响 | 缓解措施 |
+|------|------|----------|
+| `kCGDesktopWindowLevel` 在 macOS 未来版本中行为变化 | 壁纸窗口层级可能不生效 | 预留降级方案（使用更低的 CGWindowLevel 值） |
+| CGEventTap 被系统终止 | 闲置检测失效 | 实现 tap 超时重连机制 |
+| Mac App Store 沙盒限制 | 无法通过商店分发 | 仅通过 DMG / Homebrew 分发 |
+| 多 Spaces 下窗口行为异常 | 壁纸窗口出现在错误桌面 | 设置 `stationary` + `canJoinAllSpaces` behavior |
