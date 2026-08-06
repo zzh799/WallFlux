@@ -12,5 +12,6 @@ struct SettingsView: View {
                 .tabItem { Label("素材管理", systemImage: "photo.on.rectangle.angled") }
         }
         .frame(minWidth: 620, minHeight: 440)
+        .padding(.top, 20)
     }
 }
