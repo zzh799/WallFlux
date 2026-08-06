@@ -78,7 +78,7 @@ final class IdleDetector: ObservableObject {
     // MARK: - 键盘焦点窗口
 
     /// 键盘聚焦窗口所在显示器的 displayID（AX 查询，0.5 秒节流缓存）
-    /// 查询失败（无焦点窗口/权限缺失）返回 nil，由调用方决定回退策略
+    /// 查询失败（无焦点窗口/权限缺失/系统繁忙）返回 nil，由调用方决定回退策略
     func focusedDisplayID() -> String? {
         let now = Date()
         if now.timeIntervalSince(lastFocusQuery) < 0.5 { return cachedFocusDisplayID }
@@ -87,34 +87,75 @@ final class IdleDetector: ObservableObject {
         return cachedFocusDisplayID
     }
 
+    /// 前台应用最前窗口所在显示器的 displayID（CGWindowList，无需辅助功能权限）
+    /// 作为 AX 查询失败的兜底；前台应用无普通窗口时返回 nil
+    func frontmostWindowDisplayID() -> String? {
+        guard let frontmost = NSWorkspace.shared.frontmostApplication,
+              let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+        // 前台应用的普通窗口（layer 0、不透明、有实际尺寸），数组顺序即 z 序（最前在前）
+        let candidates = windows.filter { win in
+            guard let pid = win[kCGWindowOwnerPID as String] as? Int, pid == frontmost.processIdentifier else { return false }
+            guard let layer = win[kCGWindowLayer as String] as? Int, layer == 0 else { return false }
+            guard let alpha = win[kCGWindowAlpha as String] as? Double, alpha > 0 else { return false }
+            guard let bounds = win[kCGWindowBounds as String] as? [String: CGFloat],
+                  bounds["Width"] ?? 0 > 50, bounds["Height"] ?? 0 > 50 else { return false }
+            return true
+        }
+        guard let first = candidates.first,
+              let bounds = first[kCGWindowBounds as String] as? [String: CGFloat],
+              let x = bounds["X"], let y = bounds["Y"], let w = bounds["Width"], let h = bounds["Height"] else {
+            return nil
+        }
+        let center = CGPoint(x: x + w / 2, y: y + h / 2)
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) else { return nil }
+        return String(screen.fluxDisplayID)
+    }
+
     private func queryFocusedDisplayID() -> String? {
         // 系统级聚焦应用 → 聚焦窗口 → 窗口位置/尺寸 → 中心点所在屏幕
         let systemWide = AXUIElementCreateSystemWide()
         var focusedAppRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute as CFString, &focusedAppRef) == .success,
-              let focusedApp = focusedAppRef else { return nil }
+        let appErr = AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute as CFString, &focusedAppRef)
+        guard appErr == .success, let focusedApp = focusedAppRef else {
+            logger.error("AX 查询聚焦应用失败: \(appErr.rawValue)")
+            return nil
+        }
 
         let appElement = focusedApp as! AXUIElement
         var focusedWindowRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindowRef) == .success,
-              let focusedWindow = focusedWindowRef else { return nil }
+        let winErr = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindowRef)
+        guard winErr == .success, let focusedWindow = focusedWindowRef else {
+            logger.error("AX 查询聚焦窗口失败: \(winErr.rawValue)")
+            return nil
+        }
 
         let windowElement = focusedWindow as! AXUIElement
         var positionRef: CFTypeRef?
         var sizeRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(windowElement, kAXPositionAttribute as CFString, &positionRef) == .success,
-              AXUIElementCopyAttributeValue(windowElement, kAXSizeAttribute as CFString, &sizeRef) == .success,
-              let positionRef, let sizeRef else { return nil }
+        let posErr = AXUIElementCopyAttributeValue(windowElement, kAXPositionAttribute as CFString, &positionRef)
+        let sizeErr = AXUIElementCopyAttributeValue(windowElement, kAXSizeAttribute as CFString, &sizeRef)
+        guard posErr == .success, sizeErr == .success, let positionRef, let sizeRef else {
+            logger.error("AX 查询窗口位置/尺寸失败: pos=\(posErr.rawValue) size=\(sizeErr.rawValue)")
+            return nil
+        }
 
         let positionValue = positionRef as! AXValue
         let sizeValue = sizeRef as! AXValue
         var position = CGPoint.zero
         var size = CGSize.zero
         guard AXValueGetValue(positionValue, .cgPoint, &position),
-              AXValueGetValue(sizeValue, .cgSize, &size) else { return nil }
+              AXValueGetValue(sizeValue, .cgSize, &size) else {
+            logger.error("AX 窗口位置/尺寸取值失败")
+            return nil
+        }
 
         let center = CGPoint(x: position.x + size.width / 2, y: position.y + size.height / 2)
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) else { return nil }
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) else {
+            logger.error("AX 窗口中心 \(String(describing: center)) 不匹配任何屏幕")
+            return nil
+        }
         return String(screen.fluxDisplayID)
     }
 

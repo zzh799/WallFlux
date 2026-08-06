@@ -57,7 +57,7 @@ WallpaperEngine（壁纸窗口创建、视频/图片序列渲染、播放控制�
 - **多 Spaces**：壁纸窗口必须设 `collectionBehavior = [.canJoinAllSpaces, .stationary]`。
 - 壁纸窗口需 `ignoresMouseEvents = true`，背景色黑色兜底（视频未加载时）。
 - 壁纸窗口使用 `kCGDesktopIconWindowLevel`（桌面图标层），普通窗口之下。
-- 键盘输入通过 AX 查询聚焦窗口定位所在屏幕（`IdleDetector.focusedDisplayID()`），查询失败回退为所有屏幕活跃。
+- 键盘输入通过 AX 查询聚焦窗口定位所在屏幕（`IdleDetector.focusedDisplayID()`），查询失败（系统繁忙 `kAXErrorCannotComplete` 等）时逐级回退：鼠标位置 → 前台应用窗口（`frontmostWindowDisplayID()`，CGWindowList）→ 最后才回退所有屏幕活跃，避免无输入屏幕的闲置计时器被反复重置。
 - `os.Logger` 的 `info` 级别日志需 `log show/stream --info --debug` 才能看到（默认被过滤）。
 - swift 脚本（swift-frontend 解释执行）的 `os.Logger` 不生效，测试脚本用 `NSLog` 或编译后运行。
 
