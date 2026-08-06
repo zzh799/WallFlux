@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: Build (Debug)
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select --reset
+
+      - name: Build
+        run: |
+          xcodebuild \
+            -project WallFlux.xcodeproj \
+            -scheme WallFlux \
+            -configuration Debug \
+            -derivedDataPath build \
+            build
+
+      - name: Verify app bundle
+        run: |
+          APP="build/Build/Products/Debug/WallFlux.app"
+          test -d "$APP" && echo "✅ WallFlux.app built successfully"
+          test -x "$APP/Contents/MacOS/WallFlux" && echo "✅ executable present"

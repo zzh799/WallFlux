@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select --reset
+
+      - name: Build Release
+        run: |
+          xcodebuild \
+            -project WallFlux.xcodeproj \
+            -scheme WallFlux \
+            -configuration Release \
+            -derivedDataPath build \
+            build
+
+      - name: Package DMG
+        run: |
+          APP="build/Build/Products/Release/WallFlux.app"
+          test -d "$APP" || { echo "App bundle not found"; exit 1; }
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          STAGE="dmg_stage"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+
+          hdiutil create \
+            -volname "WallFlux $VERSION" \
+            -srcfolder "$STAGE" \
+            -ov -format UDZO \
+            "WallFlux-$VERSION.dmg"
+          ls -lh "WallFlux-$VERSION.dmg"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: WallFlux-*.dmg
+          generate_release_notes: true
