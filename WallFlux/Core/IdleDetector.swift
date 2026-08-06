@@ -1,0 +1,189 @@
+import AppKit
+import ApplicationServices
+import Combine
+import CoreGraphics
+import os
+import Foundation
+
+/// 全局输入事件监听（CGEventTap）
+///
+/// - 需要辅助功能权限；无权限时 tap 创建失败，需引导用户授权
+/// - tap 被系统终止（超时/用户输入）后自动重连
+/// - 所有回调均在主线程执行
+final class IdleDetector: ObservableObject {
+    /// 输入事件类型
+    enum InputKind {
+        case mouseMoved   // 鼠标移动 / 点击 / 滚动
+        case keyPressed   // 键盘输入
+    }
+
+    /// 输入事件回调（主线程）
+    var onInput: ((InputKind) -> Void)?
+
+    @Published private(set) var isTrusted = false
+    @Published private(set) var isRunning = false
+
+    private var tap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
+    private var reconnectTimer: Timer?
+    private var lastTrustedState = false
+    private var lastFocusQuery = Date.distantPast
+    private var cachedFocusDisplayID: String?
+    private let logger = Logger(subsystem: "com.wallflux.WallFlux", category: "IdleDetector")
+
+    private let eventMask: CGEventMask
+    private let tapCallback: CGEventTapCallBack
+
+    init() {
+        // 监听鼠标移动/拖拽/点击/滚动，以及键盘按键/修饰键
+        var mask: CGEventMask = 0
+        for type in [CGEventType.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
+                     .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel,
+                     .keyDown, .flagsChanged] {
+            mask |= CGEventMask(1 << type.rawValue)
+        }
+        eventMask = mask
+
+        tapCallback = { _, type, event, userInfo in
+            guard let userInfo else { return Unmanaged.passUnretained(event) }
+            let detector = Unmanaged<IdleDetector>.fromOpaque(userInfo).takeUnretainedValue()
+            detector.handleEvent(type: type)
+            return Unmanaged.passUnretained(event)
+        }
+    }
+
+    func start() {
+        guard !isRunning else { return }
+        isRunning = true
+        refreshTrust()
+        ensureTap()
+
+        // 周期性检查：权限变化或 tap 被终止时重连
+        let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            self?.refreshTrust()
+            self?.ensureTap()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        reconnectTimer = timer
+    }
+
+    func stop() {
+        guard isRunning else { return }
+        isRunning = false
+        reconnectTimer?.invalidate()
+        reconnectTimer = nil
+        destroyTap()
+    }
+
+    // MARK: - 键盘焦点窗口
+
+    /// 键盘聚焦窗口所在显示器的 displayID（AX 查询，0.5 秒节流缓存）
+    /// 查询失败（无焦点窗口/权限缺失）返回 nil，由调用方决定回退策略
+    func focusedDisplayID() -> String? {
+        let now = Date()
+        if now.timeIntervalSince(lastFocusQuery) < 0.5 { return cachedFocusDisplayID }
+        lastFocusQuery = now
+        cachedFocusDisplayID = queryFocusedDisplayID()
+        return cachedFocusDisplayID
+    }
+
+    private func queryFocusedDisplayID() -> String? {
+        // 系统级聚焦应用 → 聚焦窗口 → 窗口位置/尺寸 → 中心点所在屏幕
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedAppRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute as CFString, &focusedAppRef) == .success,
+              let focusedApp = focusedAppRef else { return nil }
+
+        let appElement = focusedApp as! AXUIElement
+        var focusedWindowRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindowRef) == .success,
+              let focusedWindow = focusedWindowRef else { return nil }
+
+        let windowElement = focusedWindow as! AXUIElement
+        var positionRef: CFTypeRef?
+        var sizeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(windowElement, kAXPositionAttribute as CFString, &positionRef) == .success,
+              AXUIElementCopyAttributeValue(windowElement, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let positionRef, let sizeRef else { return nil }
+
+        let positionValue = positionRef as! AXValue
+        let sizeValue = sizeRef as! AXValue
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue, .cgSize, &size) else { return nil }
+
+        let center = CGPoint(x: position.x + size.width / 2, y: position.y + size.height / 2)
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) else { return nil }
+        return String(screen.fluxDisplayID)
+    }
+
+    // MARK: - 私有
+
+    private func refreshTrust() {
+        isTrusted = AXIsProcessTrusted()
+    }
+
+    private func ensureTap() {
+        if let tap, CGEvent.tapIsEnabled(tap: tap) { return }
+        destroyTap()
+        let trusted = AXIsProcessTrusted()
+        if trusted != lastTrustedState {
+            if trusted {
+                logger.info("已获得辅助功能权限，创建输入监听")
+            } else {
+                logger.info("无辅助功能权限，输入监听未启用（用户可在设置中授权）")
+            }
+            lastTrustedState = trusted
+        }
+        guard trusted else { return }
+        createTap()
+    }
+
+    private func createTap() {
+        let userInfo = Unmanaged.passUnretained(self).toOpaque()
+        guard let newTap = CGEvent.tapCreate(tap: .cgSessionEventTap,
+                                             place: .headInsertEventTap,
+                                             options: .listenOnly,
+                                             eventsOfInterest: eventMask,
+                                             callback: tapCallback,
+                                             userInfo: userInfo) else {
+            logger.error("CGEventTap 创建失败")
+            return
+        }
+        logger.info("输入监听已创建")
+        tap = newTap
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, newTap, 0)
+        runLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: newTap, enable: true)
+    }
+
+    private func destroyTap() {
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+        }
+        if let runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+        }
+        self.tap = nil
+        runLoopSource = nil
+    }
+
+    private func handleEvent(type: CGEventType) {
+        switch type {
+        case .tapDisabledByTimeout, .tapDisabledByUserInput:
+            // 系统终止了 tap，稍后自动重连
+            DispatchQueue.main.async { [weak self] in
+                self?.ensureTap()
+            }
+        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
+             .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel:
+            onInput?(.mouseMoved)
+        case .keyDown, .flagsChanged:
+            onInput?(.keyPressed)
+        default:
+            break
+        }
+    }
+}

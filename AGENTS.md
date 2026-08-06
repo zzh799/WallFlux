@@ -56,9 +56,28 @@ WallpaperEngine（壁纸窗口创建、视频/图片序列渲染、播放控制�
 - **`kCGDesktopWindowLevel` 未来版本可能失效**：预留降级方案（改用更低 CGWindowLevel）。
 - **多 Spaces**：壁纸窗口必须设 `collectionBehavior = [.canJoinAllSpaces, .stationary]`。
 - 壁纸窗口需 `ignoresMouseEvents = true`，背景色黑色兜底（视频未加载时）。
-- 仓库暂无 `.gitignore`，且 `docs/设计规范.md` 尚未纳入 git 跟踪——提交前注意补上。
+- 壁纸窗口使用 `kCGDesktopIconWindowLevel`（桌面图标层），普通窗口之下。
+- 键盘输入通过 AX 查询聚焦窗口定位所在屏幕（`IdleDetector.focusedDisplayID()`），查询失败回退为所有屏幕活跃。
+- `os.Logger` 的 `info` 级别日志需 `log show/stream --info --debug` 才能看到（默认被过滤）。
+- swift 脚本（swift-frontend 解释执行）的 `os.Logger` 不生效，测试脚本用 `NSLog` 或编译后运行。
 
-## 构建与状态
+## 构建与运行
 
-- 目前**没有** `.xcodeproj` / `Package.swift`。首次创建工程时按技术文档生成模块结构，并补齐 `.gitignore`。
-- 创建工程后，请回填本文件：补充构建/测试/运行命令与 `xcodebuild` 用法。
+```bash
+# 构建（Debug）
+xcodebuild -project WallFlux.xcodeproj -scheme WallFlux -configuration Debug -derivedDataPath build build
+
+# 运行
+./build/Build/Products/Debug/WallFlux.app/Contents/MacOS/WallFlux
+# 或 open ./build/Build/Products/Debug/WallFlux.app
+
+# 查看应用日志（需 --info 才能看到 info 级别）
+log stream --info --debug --predicate 'subsystem == "com.wallflux.WallFlux"'
+log show --last 10m --info --debug --predicate 'subsystem == "com.wallflux.WallFlux"'
+
+# 调试配置注入（写入 defaults 域，二进制 plist 包 JSON Data）
+# 见 tools/write_test_config.swift 思路：PropertyListSerialization 包装后 defaults import
+```
+
+- 无自动化测试框架；E2E 验证方式：启动后 `screencapture` 对比帧差异、`log show` 查状态转换。
+- 无 storyboard：入口为 `main.swift`（显式 `NSApplication` + delegate），不要改回 `@main`。

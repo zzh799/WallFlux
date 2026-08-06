@@ -64,7 +64,7 @@
 - 关键能力：
   - 通过 `CGEvent.tapCreate` 监听全局鼠标移动和键盘事件
   - 鼠标事件：获取鼠标当前位置 `NSEvent.mouseLocation`，通过 `NSScreen.screens` 遍历判断落在哪个显示器，将该显示器标记为活跃
-  - 键盘事件：所有显示器标记为活跃
+  - 键盘事件：通过 AX API 查询聚焦窗口（`kAXFocusedApplicationAttribute` → `kAXFocusedWindowAttribute`），以窗口中心点所在显示器为准标记活跃；查询失败（无焦点窗口等）时回退为所有显示器标记活跃（保守防烧屏）；查询带 0.5 秒节流缓存
   - 活跃事件发生后，重置对应显示器的闲置倒计时器
   - 闲置倒计时到期后，通知 ScreenManager 将对应显示器切换为 idle
 
@@ -171,7 +171,7 @@ DisplayConfig {
 IdleDetector (CGEventTap)
     │
     ├── 鼠标事件 → 计算所在 NSScreen → 标记活跃 + 重置计时器
-    ├── 键盘事件 → 所有 NSScreen 标记活跃 + 重置计时器
+    ├── 键盘事件 → AX 查询焦点窗口所在屏 → 标记活跃 + 重置计时器（查询失败回退全部）
     │
     ▼
 ScreenManager
