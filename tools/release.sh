@@ -162,29 +162,32 @@ if [[ -n "$pending" ]]; then
 fi
 
 # ---------- Release 构建 ----------
-log "开始 Release 构建（xcodebuild $SCHEME Release）..."
-if (( ! DRY_RUN )); then
+if (( DRY_RUN )); then
+    log "（dry-run）跳过 Release 构建与产物校验"
+else
+    log "开始 Release 构建（xcodebuild $SCHEME Release）..."
     xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release -derivedDataPath "$BUILD_DIR" build \
         || die "Release 构建失败，请查看上方错误输出"
+    [ -d "$APP_SRC" ] || die "构建产物缺失：$APP_SRC"
+    BUILT_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_SRC/Contents/Info.plist")"
+    if [[ "$BUILT_VERSION" != "$VERSION" ]]; then
+        die "构建产物版本 $BUILT_VERSION 与目标版本 $VERSION 不一致，中止发布"
+    fi
+    log "构建成功：$APP_SRC（版本 $BUILT_VERSION）"
 fi
-[ -d "$APP_SRC" ] || die "构建产物缺失：$APP_SRC"
-BUILT_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_SRC/Contents/Info.plist")"
-if [[ "$BUILT_VERSION" != "$VERSION" ]]; then
-    die "构建产物版本 $BUILT_VERSION 与目标版本 $VERSION 不一致，中止发布"
-fi
-log "构建成功：$APP_SRC（版本 $BUILT_VERSION）"
 
 # ---------- 安装到 /Applications ----------
-if (( INSTALL_APP )); then
+if (( INSTALL_APP && ! DRY_RUN )); then
     log "安装到 $APP_DST（先退出正在运行的 WallFlux）"
-    run pkill -f WallFlux || true
-    run rm -rf "$APP_DST"
-    run ditto "$APP_SRC" "$APP_DST"
+    pkill -f WallFlux || true
+    rm -rf "$APP_DST"
+    ditto "$APP_SRC" "$APP_DST"
     INSTALLED_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_DST/Contents/Info.plist")"
     [[ "$INSTALLED_VERSION" == "$VERSION" ]] || die "安装失败：$APP_DST 版本 $INSTALLED_VERSION 与目标不符"
     log "已安装：$APP_DST（版本 $INSTALLED_VERSION）"
 else
-    log "跳过安装（--skip-install）"
+    (( DRY_RUN )) && log "（dry-run）跳过安装"
+    (( ! INSTALL_APP )) && log "跳过安装（--skip-install）"
 fi
 
 # ---------- 打 tag 并推送 ----------
