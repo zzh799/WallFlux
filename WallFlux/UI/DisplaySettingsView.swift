@@ -17,6 +17,8 @@ struct DisplaySettingsView: View {
     /// 左侧选中的壁纸来源
     @State private var selectedType: WallpaperType = .system
     @State private var importError: String?
+    /// 系统屏保下载中心 Sheet
+    @State private var showDownloadCenter = false
 
     init(core: CoreManager = CoreManager.shared) {
         self.core = core
@@ -58,6 +60,11 @@ struct DisplaySettingsView: View {
         .onChange(of: selectedType) { _, newType in
             // 切换来源时预加载该来源全部素材缩略图，建立缓存
             thumbnails.preload(assetsFor(newType))
+        }
+        .sheet(isPresented: $showDownloadCenter) {
+            ScreenSaverDownloadView(assetStore: assetStore) { asset in
+                selectAsset(asset)
+            }
         }
     }
 
@@ -188,6 +195,21 @@ struct DisplaySettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
+            case .screenSaver:
+                Button {
+                    showDownloadCenter = true
+                } label: {
+                    Label("打开下载中心…", systemImage: "arrow.down.circle")
+                }
+                .controlSize(.small)
+                Button(action: openScreenSaverSettings) {
+                    Label("在系统设置中启用…", systemImage: "gearshape")
+                }
+                .controlSize(.small)
+                Label("系统已下载的视频直接引用，与系统屏保共用同一文件。", systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if let importError {
@@ -234,7 +256,7 @@ struct DisplaySettingsView: View {
 
     private var emptyAssetsHint: some View {
         VStack(spacing: 8) {
-            Image(systemName: selectedType == .system ? "sparkles" : "photo.badge.plus")
+            Image(systemName: emptyAssetsIcon)
                 .font(.system(size: 32))
                 .foregroundStyle(.tertiary)
             Text(emptyHintText)
@@ -246,9 +268,19 @@ struct DisplaySettingsView: View {
         .padding(24)
     }
 
+    private var emptyAssetsIcon: String {
+        switch selectedType {
+        case .system: return "sparkles"
+        case .screenSaver: return "sparkles.tv"
+        case .video: return "film"
+        case .imageSequence: return "photo.stack"
+        }
+    }
+
     private var emptyHintText: String {
         switch selectedType {
         case .system: return "未发现系统动态壁纸。"
+        case .screenSaver: return "系统尚未下载 Aerial 屏保视频。可在左侧「打开下载中心」从 CDN 下载，或在系统屏保中启用一次 Aerial。"
         case .video: return "还没有导入视频，点击左侧「导入视频…」添加。"
         case .imageSequence: return "还没有图片序列，点击左侧「添加文件夹…」添加。"
         }
@@ -273,7 +305,7 @@ struct DisplaySettingsView: View {
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                if asset.kind != .system {
+                if asset.isDeletable {
                     Button(role: .destructive) {
                         deleteAsset(asset)
                     } label: {
@@ -319,6 +351,7 @@ struct DisplaySettingsView: View {
     private func sourceIcon(for type: WallpaperType) -> String {
         switch type {
         case .system: return "sparkles"
+        case .screenSaver: return "sparkles.tv"
         case .video: return "film"
         case .imageSequence: return "photo.stack"
         }
@@ -443,6 +476,12 @@ struct DisplaySettingsView: View {
     }
 
     // MARK: - 导入
+
+    /// 打开系统屏幕保护设置面板（用户在此选择 Aerial 分类后由系统自动下载）
+    private func openScreenSaverSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.ScreenSaver-Settings.extension") else { return }
+        NSWorkspace.shared.open(url)
+    }
 
     private func importVideo() {
         let panel = NSOpenPanel()

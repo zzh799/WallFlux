@@ -3,6 +3,7 @@ import Foundation
 /// 壁纸素材来源类型
 enum WallpaperType: String, Codable, CaseIterable, Identifiable {
     case system = "system"
+    case screenSaver = "screenSaver"
     case video = "video"
     case imageSequence = "imageSequence"
 
@@ -12,6 +13,7 @@ enum WallpaperType: String, Codable, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .system: return "系统动态壁纸"
+        case .screenSaver: return "系统屏保"
         case .video: return "视频"
         case .imageSequence: return "图片序列"
         }
@@ -21,6 +23,7 @@ enum WallpaperType: String, Codable, CaseIterable, Identifiable {
     var assetKind: WallpaperAsset.Kind {
         switch self {
         case .system: return .system
+        case .screenSaver: return .screenSaver
         case .video: return .video
         case .imageSequence: return .imageSequence
         }

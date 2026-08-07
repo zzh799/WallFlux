@@ -11,7 +11,7 @@ English | [简体中文](README_zh.md)
 - **Per-display configuration** - each monitor gets its own wallpaper, remembered by hardware ID across unplug / replug; or switch to "All displays" to apply one wallpaper everywhere (newly connected displays inherit it automatically)
 - **Smart idle detection** - global mouse + keyboard monitoring; a display without input for N minutes (default 1, configurable) automatically starts playing its dynamic wallpaper
 - **Micro-step burn-in prevention** - on active displays the wallpaper is paused and advances Z frames every Y seconds, visually imperceptible but effective against OLED burn-in
-- **Three wallpaper sources** - macOS system dynamic wallpapers, local video files (mp4 / mov / webm), local image sequences (a folder of images, sorted by filename)
+- **Four wallpaper sources** - macOS system dynamic wallpapers, system screen saver videos (Aerial aerial footage, referencing the files the system already downloaded), local video files (mp4 / mov / webm), local image sequences (a folder of images, sorted by filename)
 - **Graceful exit** - configurable transition when you come back: instant stop or fade-out (0.5 s default); a mouse passing briefly over a playing display never interrupts the wallpaper - it goes back to top-layer playback as soon as the mouse leaves or stops
 - **Screen-saver-level playback** - while playing, the wallpaper window sits at the very top (screen saver layer); the moment the mouse enters, it drops to the desktop layer and yields the screen, never blocking your work
 - **Hot-plug aware** - connecting or disconnecting a display is detected automatically and its configuration is restored
@@ -50,8 +50,9 @@ open ./build/Build/Products/Release/WallFlux.app
 
 1. Launch WallFlux - it lives in the menu bar (⌘ icon).
 2. Grant the **Accessibility** permission when prompted (System Settings → Privacy & Security → Accessibility). This is required to monitor global input events so WallFlux knows which display is idle.
-3. Open the menu bar panel → Settings, choose "All displays" for a single wallpaper everywhere, or switch to "Per display" to pick a wallpaper for each monitor (system wallpaper, video, or image sequence).
-4. Walk away. Idle displays start playing automatically; when you return, they fade back to the desktop.
+3. Open the menu bar panel → Settings, choose "All displays" for a single wallpaper everywhere, or switch to "Per display" to pick a wallpaper for each monitor (system wallpaper, screen saver, video, or image sequence).
+4. The "Screen Saver" source references the videos the system Aerial screen saver already downloaded (shared file, no extra disk usage); for the rest, use "Download Center" to fetch them from the Apple CDN, or enable Aerial in System Settings and let macOS download them.
+5. Walk away. Idle displays start playing automatically; when you return, they fade back to the desktop.
 
 ## How it works
 

@@ -123,7 +123,7 @@ AppConfig {
 
 DisplayConfig {
     displayID: String             // 显示器唯一标识
-    wallpaperType: WallpaperType  // .system / .video / .imageSequence（仅单独设置模式生效）
+    wallpaperType: WallpaperType  // .system / .screenSaver / .video / .imageSequence（仅单独设置模式生效）
     wallpaperAssetID: String      // 素材 ID（仅单独设置模式生效）
     lastFramePosition: Int        // 上次退出帧位置（两种模式均按显示器独立记录）
 }
@@ -134,13 +134,21 @@ DisplayConfig {
 
 #### 3.5 AssetStore — 素材管理
 
-- 职责：管理壁纸素材的导入、存储和索引
+- 职责：管理壁纸素材的导入、存储、索引，以及系统 Aerial 屏保视频的扫描与下载
 - 素材存储位置：`~/Library/Application Support/WallFlux/Assets/`
 - 素材类型：
   - `SystemWallpaper`：枚举 macOS 系统自带动态壁纸路径
-  - `VideoAsset`：用户导入的视频文件（复制到素材目录）
+  - `ScreenSaverWallpaper`：系统 Aerial 屏保已下载视频（**只读引用系统目录，不复制**）
+  - `VideoAsset`：用户导入的视频文件（复制到素材目录；Aerial 下载到素材库的视频同属此类，可删除）
   - `ImageSequenceAsset`：用户导入的图片文件夹
 - 元数据以 JSON 文件存储在素材目录中
+- **系统 Aerial 屏保接入**（对应「系统屏保」壁纸来源）：
+  - 扫描：`/Library/Application Support/com.apple.idleassetsd/Customer/` 下各分辨率子目录（`4KSDR240FPS` 等）的 `.mov`，文件名即资产 UUID；目录只读，WallFlux 只引用不写入
+  - 目录清单：优先 `Customer/entries.json`（与实际下载对账），缺失时回退系统内置清单 `TVIdleServices.framework/.../entries.json`（137 个资产，离线可用）；资产含 `url-4K-SDR-240FPS`（Apple CDN 直链）与 `previewImage`
+  - 本地化：`TVIdleScreenStrings.bundle` 的 `Localizable.nocache.loctable`（按当前系统语言取表，zh 优先 `zh_CN`），解析资产名/分类名；loctable 为嵌套 NSDictionary，需逐层桥接转型
+  - 下载：`downloadAerialItem(id:)` 用 `URLSession.downloadTask` 从 CDN 下载到素材库（`aerial-<UUID>/`），KVO 监听 `task.progress.fractionCompleted` 发布进度；完成后按 `VideoAsset` 登记（可删除），`cancelAerialDownload(id:)` 取消并清理
+  - 系统已下载与素材库下载的映射：`aerialAsset(for:)` 优先系统引用（`screensaver:<UUID>`），其次素材库（`aerial-<UUID>`）
+  - 删除规则：`system` 与 `screenSaver` 均只读不可删；Aerial 下载到素材库的视频可删（删除时被使用则先回退到视频分类第一个可用素材）
 
 #### 3.6 SmartPauseMonitor — 智能暂停监测
 

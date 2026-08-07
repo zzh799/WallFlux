@@ -12,6 +12,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             self?.showLaunchAtLoginPromptIfNeeded()
         }
+        // E2E 调试入口：--open-settings 启动后直接打开设置窗口
+        if CommandLine.arguments.contains("--open-settings") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                SettingsWindowController.shared.show()
+            }
+        }
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
