@@ -189,7 +189,7 @@ DisplayConfig {
   - 推送 `applyMediaPlaybackDisplayIDs(_:)`；配置开关 `mediaPlaybackKeepsActive` 关闭时不轮询、立即清空命中
 - 状态机联动（见 §4）：
   - `active`：媒体播放中不启用闲置计时（媒体结束后 `setMediaPlaybackPresent(false)` 重新启动）；媒体开始时若该屏正闲置播放则立即 `beginExit` 让位
-  - `idleTimerFired` / `resetIdleTimer` / `forcePlayNow` 均带 `mediaPlaybackBlocksIdle` 守卫
+  - `idleTimerFired` / `resetIdleTimer` 均带 `mediaPlaybackBlocksIdle` 守卫（自动闲置）；`forcePlayNow`（立即播放，FR-12）为用户显式操作，强制覆盖媒体守卫：预览期间置顶播放且媒体守卫不生效（`manualPreviewActive`），任意输入退出后恢复守卫
   - 暂停（手动/智能）期间不处理媒体变化，恢复时由 `applyResume` 走守卫
 
 ### 4. 状态机
@@ -303,7 +303,8 @@ ScreenContext.setMediaPlaybackPresent
     │   ├── active：媒体播放中不启闲置计时（结束后恢复）
     │   └── idle：媒体开始播放 → beginExit（壁纸让位）
     ▼
-idleTimerFired / resetIdleTimer / forcePlayNow 均带 mediaPlaybackBlocksIdle 守卫
+idleTimerFired / resetIdleTimer 均带 mediaPlaybackBlocksIdle 守卫（自动闲置）；
+forcePlayNow（立即播放）为用户显式操作，强制覆盖媒体守卫，预览期间媒体守卫不生效，任意输入退出后恢复
 ```
 ```
 

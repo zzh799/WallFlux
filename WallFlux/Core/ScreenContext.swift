@@ -40,6 +40,9 @@ final class ScreenContext: ObservableObject, Identifiable {
     private var fullscreenPresent = false
     /// 该屏当前是否存在其他应用的媒体播放（媒体播放保持活跃用：阻止进入闲置播放，不影响微跳）
     private var mediaPlaybackPresent = false
+    /// 手动立即播放预览中（「立即播放动态壁纸」发起）：预览期间媒体播放守卫不生效，
+    /// 直到任意输入退出（beginExit 清除）后恢复守卫
+    private var manualPreviewActive = false
     /// 暂停是否已应用（避免重复应用/重复恢复）
     private var isPauseApplied = false
     /// 当前命中的智能暂停原因（按声明顺序，UI 展示用）
@@ -189,10 +192,12 @@ final class ScreenContext: ObservableObject, Identifiable {
                 resetIdleTimer()
             }
         case .idle:
-            if present {
+            if present, !manualPreviewActive {
                 logger.info("显示器 \(self.displayID) 检测到媒体播放，退出闲置")
                 beginExit()
             }
+            // 手动预览（立即播放）期间媒体开始播放：保持壁纸置顶（用户显式选择），
+            // 媒体状态照常记录，预览退出后由 beginExit 后的 active 守卫继续生效
         case .exiting:
             break // 退出中不动，自然回到 active 后由守卫阻止重新进入闲置
         }
@@ -243,8 +248,9 @@ final class ScreenContext: ObservableObject, Identifiable {
             startMicroStepTimer()
             resetIdleTimer()
         case .idle:
-            if mediaPlaybackBlocksIdle {
-                // 暂停期间媒体开始播放：恢复时不重新置顶播放，直接退出闲置让位
+            if mediaPlaybackBlocksIdle && !manualPreviewActive {
+                // 暂停期间媒体开始播放：恢复时不重新置顶，直接退出闲置让位
+                // （手动预览期间不受限，预览持续到用户输入退出）
                 beginExit()
             } else {
                 engine?.play(displayID: displayID)
@@ -305,6 +311,7 @@ final class ScreenContext: ObservableObject, Identifiable {
     }
 
     private func beginExit() {
+        manualPreviewActive = false // 任何退出路径都结束手动预览，恢复监听守卫
         state = .exiting
         idleTimer?.invalidate(); idleTimer = nil
         microStepTimer?.invalidate(); microStepTimer = nil
@@ -327,12 +334,16 @@ final class ScreenContext: ObservableObject, Identifiable {
         enterActive()
     }
 
-    /// 手动立即播放（设置页「立即播放动态壁纸」按钮）：与闲置超时相同的迁移路径，
-    /// 立即进入闲置循环播放供即时预览。暂停中或无输入监控时不生效（与 idleTimerFired
-    /// 相同的安全约束：无输入检测时禁止置顶播放，防止无法退出）。
+    /// 手动立即播放（设置页「立即播放动态壁纸」按钮）：立即进入闲置循环播放供即时预览。
+    /// 手动触发是用户的显式操作（FR-12「任意输入即退出」），强制覆盖媒体播放守卫——
+    /// 即使该屏正在播放其他应用的媒体也置顶播放；预览期间媒体守卫不生效（见
+    /// setMediaPlaybackPresent），退出闲置后自动恢复守卫。暂停中或无输入监控时
+    /// 不生效（与 idleTimerFired 相同的安全约束：无输入检测时禁止置顶播放，防止无法退出）。
     func forcePlayNow() {
         guard state == .active, !isPaused, inputMonitoringEnabled else { return }
-        idleTimerFired()
+        manualPreviewActive = true
+        logger.info("显示器 \(self.displayID) 手动立即播放（覆盖媒体播放守卫，任意输入退出）")
+        enterIdlePlayback()
     }
 
     private func idleTimerFired() {
@@ -342,6 +353,11 @@ final class ScreenContext: ObservableObject, Identifiable {
             logger.info("显示器 \(self.displayID) 媒体播放中，跳过闲置进入")
             return
         }
+        enterIdlePlayback()
+    }
+
+    /// 进入闲置循环播放（自动闲置超时与手动立即播放共用路径）
+    private func enterIdlePlayback() {
         state = .idle
         microStepTimer?.invalidate(); microStepTimer = nil
         logger.info("显示器 \(self.displayID) 进入闲置，开始循环播放")
