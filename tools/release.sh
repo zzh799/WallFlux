@@ -133,10 +133,10 @@ if [[ -n "$BUMP_KIND" ]]; then
     if (( ! DRY_RUN )); then
         /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$INFO_PLIST"
         sed -i '' "s/MARKETING_VERSION = .*;/MARKETING_VERSION = $VERSION;/g" "$PBXPROJ"
+        log "版本号已写入 Info.plist 与 pbxproj（$VERSION）"
     else
-        printf '   (dry-run) 写入版本：Info.plist + pbxproj MARKETING_VERSION = %s\n' "$VERSION"
+        log "（dry-run）将写入版本号 $VERSION 到 Info.plist 与 pbxproj"
     fi
-    log "版本号已写入 Info.plist 与 pbxproj"
 fi
 
 # ---------- 提交检查 ----------
