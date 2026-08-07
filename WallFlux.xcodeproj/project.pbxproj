@@ -17,6 +17,7 @@
 		000000000000000000000207 /* ScreenManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000107 /* ScreenManager.swift */; };
 		000000000000000000000208 /* ScreenContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000108 /* ScreenContext.swift */; };
 		00000000000000000000021B /* SmartPauseMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011C /* SmartPauseMonitor.swift */; };
+		00000000000000000000022A /* MediaPlaybackMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000021D /* MediaPlaybackMonitor.swift */; };
 		00000000000000000000021C /* LaunchAtLogin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011D /* LaunchAtLogin.swift */; };
 		000000000000000000000209 /* IdleDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000109 /* IdleDetector.swift */; };
 		00000000000000000000020A /* WallpaperEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010A /* WallpaperEngine.swift */; };
@@ -35,6 +36,10 @@
 		000000000000000000000217 /* ImageIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000119 /* ImageIO.framework */; };
 		000000000000000000000218 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011A /* UniformTypeIdentifiers.framework */; };
 		000000000000000000000219 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000115 /* Assets.xcassets */; };
+		000000000000000000000226 /* mediaremote-mini.pl in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000222 /* mediaremote-mini.pl */; };
+		000000000000000000000227 /* MediaRemoteMini.dylib in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000223 /* MediaRemoteMini.dylib */; };
+		000000000000000000000228 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000224 /* LICENSE */; };
+		000000000000000000000229 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000225 /* README.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -48,6 +53,7 @@
 		000000000000000000000108 /* ScreenContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenContext.swift; sourceTree = "<group>"; };
 		00000000000000000000011C /* SmartPauseMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartPauseMonitor.swift; sourceTree = "<group>"; };
 		00000000000000000000011D /* LaunchAtLogin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLogin.swift; sourceTree = "<group>"; };
+		00000000000000000000021D /* MediaPlaybackMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPlaybackMonitor.swift; sourceTree = "<group>"; };
 		000000000000000000000109 /* IdleDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleDetector.swift; sourceTree = "<group>"; };
 		00000000000000000000010A /* WallpaperEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WallpaperEngine.swift; sourceTree = "<group>"; };
 		00000000000000000000010B /* WallpaperWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WallpaperWindow.swift; sourceTree = "<group>"; };
@@ -67,6 +73,10 @@
 		000000000000000000000119 /* ImageIO.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ImageIO.framework; path = System/Library/Frameworks/ImageIO.framework; sourceTree = SDKROOT; };
 		00000000000000000000011A /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		00000000000000000000011B /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		000000000000000000000222 /* mediaremote-mini.pl */ = {isa = PBXFileReference; lastKnownFileType = text.script.perl; path = "MediaRemote/mediaremote-mini.pl"; sourceTree = "<group>"; };
+		000000000000000000000223 /* MediaRemoteMini.dylib */ = {isa = PBXFileReference; lastKnownFileType = compiled.mach-o.dylib; path = MediaRemote/MediaRemoteMini.dylib; sourceTree = "<group>"; };
+		000000000000000000000224 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = MediaRemote/LICENSE; sourceTree = "<group>"; };
+		000000000000000000000225 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = MediaRemote/README.md; sourceTree = "<group>"; };
 		00000000000000000000000E /* WallFlux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WallFlux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -112,8 +122,20 @@
 				000000000000000000000008 /* UI */,
 				000000000000000000000114 /* Info.plist */,
 				000000000000000000000115 /* Assets.xcassets */,
+				000000000000000000000221 /* Resources */,
 			);
 			path = WallFlux;
+			sourceTree = "<group>";
+		};
+		000000000000000000000221 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000222 /* mediaremote-mini.pl */,
+				000000000000000000000223 /* MediaRemoteMini.dylib */,
+				000000000000000000000224 /* LICENSE */,
+				000000000000000000000225 /* README.md */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		000000000000000000000005 /* App */ = {
@@ -136,6 +158,7 @@
 				000000000000000000000107 /* ScreenManager.swift */,
 				000000000000000000000108 /* ScreenContext.swift */,
 				00000000000000000000011C /* SmartPauseMonitor.swift */,
+				00000000000000000000021D /* MediaPlaybackMonitor.swift */,
 				00000000000000000000011D /* LaunchAtLogin.swift */,
 				000000000000000000000109 /* IdleDetector.swift */,
 			);
@@ -238,6 +261,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000219 /* Assets.xcassets in Resources */,
+				000000000000000000000226 /* mediaremote-mini.pl in Resources */,
+				000000000000000000000227 /* MediaRemoteMini.dylib in Resources */,
+				000000000000000000000228 /* LICENSE in Resources */,
+				000000000000000000000229 /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -258,6 +285,7 @@
 				000000000000000000000207 /* ScreenManager.swift in Sources */,
 				000000000000000000000208 /* ScreenContext.swift in Sources */,
 				00000000000000000000021B /* SmartPauseMonitor.swift in Sources */,
+				00000000000000000000022A /* MediaPlaybackMonitor.swift in Sources */,
 				00000000000000000000021C /* LaunchAtLogin.swift in Sources */,
 				000000000000000000000209 /* IdleDetector.swift in Sources */,
 				00000000000000000000020A /* WallpaperEngine.swift in Sources */,

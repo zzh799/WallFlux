@@ -138,6 +138,9 @@ struct AppConfig: Codable, Equatable {
     /// 全屏应用暂停微跳（微跳模式）：活跃屏存在全屏/最大化应用窗口时不微跳；
     /// 闲置屏不受影响，照常循环播放（屏保优先）。不属于智能暂停。
     var microStepPauseOnFullscreen: Bool = true
+    /// 其他应用播放媒体（视频/直播/音乐等）时保持活跃：命中屏不进入闲置循环播放，
+    /// 避免壁纸覆盖播放内容；媒体暂停/结束后恢复。不属于智能暂停（不暂停微跳）。
+    var mediaPlaybackKeepsActive: Bool = true
 }
 
 // 兼容旧版本持久化数据：新增字段缺失时回退默认值
@@ -151,7 +154,7 @@ extension AppConfig {
         case smartPauseEnabled, pauseOnSleep, pauseOnDisplaySleep, pauseOnLowPowerMode
         // 存储键沿用旧名 "pauseOnFullscreen"，兼容旧版本持久化数据
         case pauseOnBattery, pauseOnLowBattery, lowBatteryThresholdPercent,
-             microStepPauseOnFullscreen = "pauseOnFullscreen"
+             microStepPauseOnFullscreen = "pauseOnFullscreen", mediaPlaybackKeepsActive
     }
 
     init(from decoder: Decoder) throws {
@@ -174,6 +177,7 @@ extension AppConfig {
         pauseOnLowBattery = try c.decodeIfPresent(Bool.self, forKey: .pauseOnLowBattery) ?? true
         lowBatteryThresholdPercent = try c.decodeIfPresent(Double.self, forKey: .lowBatteryThresholdPercent) ?? 40
         microStepPauseOnFullscreen = try c.decodeIfPresent(Bool.self, forKey: .microStepPauseOnFullscreen) ?? true
+        mediaPlaybackKeepsActive = try c.decodeIfPresent(Bool.self, forKey: .mediaPlaybackKeepsActive) ?? true
     }
 }
 

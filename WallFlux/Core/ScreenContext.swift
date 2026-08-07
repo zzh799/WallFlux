@@ -38,6 +38,8 @@ final class ScreenContext: ObservableObject, Identifiable {
     private var smartPauseReasons: Set<SmartPauseReason> = []
     /// 该屏当前是否存在全屏/最大化窗口应用（微跳暂停用：仅影响活跃屏微跳，闲置播放不受影响）
     private var fullscreenPresent = false
+    /// 该屏当前是否存在其他应用的媒体播放（媒体播放保持活跃用：阻止进入闲置播放，不影响微跳）
+    private var mediaPlaybackPresent = false
     /// 暂停是否已应用（避免重复应用/重复恢复）
     private var isPauseApplied = false
     /// 当前命中的智能暂停原因（按声明顺序，UI 展示用）
@@ -165,6 +167,37 @@ final class ScreenContext: ObservableObject, Identifiable {
         configStore.config.microStepPauseOnFullscreen && fullscreenPresent
     }
 
+    /// 媒体播放保持活跃是否生效：配置开启且该屏存在媒体播放时成立
+    /// （阻止进入闲置循环播放，避免壁纸覆盖正在播放的视频/直播/音乐）
+    private var mediaPlaybackBlocksIdle: Bool {
+        configStore.config.mediaPlaybackKeepsActive && mediaPlaybackPresent
+    }
+
+    /// 媒体播放状态更新（MediaPlaybackMonitor 推送）：命中屏媒体播放期间不进入闲置循环播放。
+    /// 媒体开始时若该屏正处于闲置播放则立即退出（壁纸让位）；媒体结束后重新挂闲置计时。
+    /// 不影响微跳（与全屏暂停微跳是两个独立行为）。
+    func setMediaPlaybackPresent(_ present: Bool) {
+        guard present != mediaPlaybackPresent else { return }
+        mediaPlaybackPresent = present
+        guard !isPaused else { return } // 暂停中无闲置计时，恢复时由 applyResume 走守卫
+        switch state {
+        case .active:
+            if present {
+                // 媒体播放中：暂停闲置计时（不进入闲置），媒体结束后恢复计时
+                idleTimer?.invalidate(); idleTimer = nil
+            } else {
+                resetIdleTimer()
+            }
+        case .idle:
+            if present {
+                logger.info("显示器 \(self.displayID) 检测到媒体播放，退出闲置")
+                beginExit()
+            }
+        case .exiting:
+            break // 退出中不动，自然回到 active 后由守卫阻止重新进入闲置
+        }
+    }
+
     /// 系统唤醒后重置为活跃（设计 §2.4）：idle 屏退出播放回 active，active 屏重置闲置计时器。
     /// 暂停中同样重置（唤醒后壁纸不应立即置顶播放），恢复时按 active 态继续。
     func resetToActive() {
@@ -210,7 +243,12 @@ final class ScreenContext: ObservableObject, Identifiable {
             startMicroStepTimer()
             resetIdleTimer()
         case .idle:
-            engine?.play(displayID: displayID)
+            if mediaPlaybackBlocksIdle {
+                // 暂停期间媒体开始播放：恢复时不重新置顶播放，直接退出闲置让位
+                beginExit()
+            } else {
+                engine?.play(displayID: displayID)
+            }
         case .exiting:
             break
         }
@@ -300,6 +338,10 @@ final class ScreenContext: ObservableObject, Identifiable {
     private func idleTimerFired() {
         guard state == .active, !isPaused else { return }
         guard inputMonitoringEnabled else { return } // 无输入监控（未授权）时不进入闲置置顶
+        guard !mediaPlaybackBlocksIdle else {
+            logger.info("显示器 \(self.displayID) 媒体播放中，跳过闲置进入")
+            return
+        }
         state = .idle
         microStepTimer?.invalidate(); microStepTimer = nil
         logger.info("显示器 \(self.displayID) 进入闲置，开始循环播放")
@@ -384,6 +426,7 @@ final class ScreenContext: ObservableObject, Identifiable {
         idleTimer?.invalidate()
         guard !isPaused else { return } // 暂停中不启动闲置计时（恢复时由 applyResume 启动）
         guard inputMonitoringEnabled else { return } // 无输入监控（未授权）时不启动闲置计时
+        guard !mediaPlaybackBlocksIdle else { return } // 媒体播放中不启动闲置计时（媒体结束由 setMediaPlaybackPresent 恢复）
         let seconds = max(1, configStore.config.idleTimeoutMinutes) * 60
         let timer = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
             self?.idleTimerFired()

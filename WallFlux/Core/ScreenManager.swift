@@ -28,6 +28,8 @@ final class ScreenManager: ObservableObject {
     private var lastSmartPause: Set<SmartPauseReason> = []
     /// 最近一次全屏命中检测（新接入的显示器立即应用当前微跳暂停状态）
     private var lastFullscreenDisplayIDs: Set<String> = []
+    /// 最近一次媒体播放命中检测（新接入的显示器立即应用当前状态）
+    private var lastMediaPlaybackDisplayIDs: Set<String> = []
 
     init(configStore: ConfigStore, assetStore: AssetStore) {
         self.configStore = configStore
@@ -102,6 +104,12 @@ final class ScreenManager: ObservableObject {
         contexts.forEach { $0.setFullscreenPresent(displayIDs.contains($0.displayID)) }
     }
 
+    /// 媒体播放命中推送（MediaPlaybackMonitor 驱动）：命中屏媒体播放期间不进入闲置播放
+    func applyMediaPlaybackDisplayIDs(_ displayIDs: Set<String>) {
+        lastMediaPlaybackDisplayIDs = displayIDs
+        contexts.forEach { $0.setMediaPlaybackPresent(displayIDs.contains($0.displayID)) }
+    }
+
     /// 系统唤醒：所有显示器重置为活跃（设计 §2.4，唤醒后壁纸不应立即置顶播放）
     func handleSystemWake() {
         contexts.forEach { $0.resetToActive() }
@@ -156,6 +164,7 @@ final class ScreenManager: ObservableObject {
             }
             ctx.setSmartPauseReasons(lastSmartPause)
             ctx.setFullscreenPresent(lastFullscreenDisplayIDs.contains(id))
+            ctx.setMediaPlaybackPresent(lastMediaPlaybackDisplayIDs.contains(id))
         }
     }
 }

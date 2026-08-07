@@ -32,6 +32,8 @@
 │  │  - 闲置检测 (IdleDetector)             │   │
 │  │  - 配置管理 (ConfigStore)              │   │
 │  │  - 素材管理 (AssetStore)               │   │
+│  │  - 智能暂停监测 (SmartPauseMonitor)    │   │
+│  │  - 媒体播放监测 (MediaPlaybackMonitor) │   │
 │  └────┬───────────────────────────────────┘   │
 │       │                                       │
 │  ┌────┴───────────────────────────────────┐   │
@@ -173,9 +175,30 @@ DisplayConfig {
   - 首启弹窗：UserDefaults 标记 `WallFlux.didShowLaunchAtLoginPrompt`，只询问一次，默认不勾选；弹窗同时简述当前智能暂停命中状态
   - 开关组件 `LaunchAtLoginToggle`（面板紧凑模式 + 设置「启动」分区）：onAppear 读真实状态刷新，不做定时轮询；requiresApproval 时警示 + 「打开系统设置」（`x-apple.systempreferences:com.apple.LoginItems-Settings.extension`）
 
+#### 3.8 MediaPlaybackMonitor — 媒体播放监测
+
+- 职责：监测其他应用（Chrome/Safari 网页视频、直播、播放器、音乐等）是否正在播放媒体（FR-16），命中媒体播放期间不进入闲置循环播放，避免壁纸覆盖播放内容；不影响微跳（与全屏暂停微跳是两个独立行为）
+- 查询机制（MediaRemote 私有框架「正在播放」通路）：
+  - **为什么不能进程内直连**：mediaremoted 依据调用方代码签名授予 entitlement 位，Apple 签名宿主（如 `/usr/bin/perl`）获得 `entitlements=512`，非 Apple 签名的 ad-hoc/自签二进制一律 `entitlements=0`（实测 macOS 15.7.5）；私有 entitlement（`com.apple.nowplaying.entitlement`、`com.apple.mediaremote.now-playing-read-access` 等）对非 Apple 签名二进制会被 amfid 直接 SIGKILL。因此 WallFlux 自身直连 MediaRemote 私有框架会被拒绝
+  - **打包方案**：以 `/usr/bin/perl`（Apple 签名，携带 entitlements=512）启动打包的 `mediaremote-mini.pl` 加载 `MediaRemoteMini.dylib`（第三方组件，来源 kirtan-shah/nowplaying-cli，GPL-3.0；文件、构建与许可见 `Resources/MediaRemote/README.md`），由 perl 作为宿主查询「正在播放」信息
+  - 调用约定：`/usr/bin/perl <resources>/mediaremote-mini.pl <resources>/MediaRemoteMini.dylib adapter_get_env`，stdout 输出单行 JSON（`playing` / `bundleIdentifier` / `processIdentifier` / `title` 等），无播放输出 `null`；单次调用实测约 20-30ms。注意 perl 为 hardened runtime，路径必须为绝对路径（从 `Bundle.main.resourceURL` 取）
+- 轮询与推送：
+  - 2 秒定时器（与 SmartPauseMonitor 同节奏），查询在后台队列执行，输出缺失/解析失败/超时视为无播放
+  - 子进程超时兜底：3 秒未退出则 terminate（`readDataToEndOfFile` 随即返回）；上一轮在途时跳过本轮，避免进程堆积
+  - 命中计算：`CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 取播放进程 layer 0 普通窗口，与各 `NSScreen.frame`（同为 CGWindowList 全局显示坐标）判交得命中屏集合；播放进程找不到窗口（后台播放、Safari 的 WebKit.GPU 子进程播放等）时回退命中所有显示器（保守）
+  - 推送 `applyMediaPlaybackDisplayIDs(_:)`；配置开关 `mediaPlaybackKeepsActive` 关闭时不轮询、立即清空命中
+- 状态机联动（见 §4）：
+  - `active`：媒体播放中不启用闲置计时（媒体结束后 `setMediaPlaybackPresent(false)` 重新启动）；媒体开始时若该屏正闲置播放则立即 `beginExit` 让位
+  - `idleTimerFired` / `resetIdleTimer` / `forcePlayNow` 均带 `mediaPlaybackBlocksIdle` 守卫
+  - 暂停（手动/智能）期间不处理媒体变化，恢复时由 `applyResume` 走守卫
+
 ### 4. 状态机
 
 每个显示器的状态流转（`active` / `idle` / `exiting`，宽限为 idle 的子状态）：
+
+媒体播放保持活跃（FR-16）不改变状态机形状，只加两条边：
+- active 时媒体播放中 → 不启动闲置计时（无状态迁移）；媒体结束后重新启动闲置计时
+- idle 时媒体开始播放 → 立即走 exiting 退出（壁纸让位，与用户输入退出同路径）
 
 ```
         ┌──────────┐
@@ -261,6 +284,27 @@ ScreenContext.setSmartPauseReasons → isPaused = 手动 ∨ 智能
     ▼
 UI（面板「已暂停：[原因]」+ 设置「当前已暂停」）← activeReasons
 ```
+
+媒体播放数据流：
+
+```
+MediaPlaybackMonitor（2 秒轮询）
+    │  /usr/bin/perl mediaremote-mini.pl MediaRemoteMini.dylib adapter_get_env
+    │  → 单行 JSON（playing / processIdentifier）或无播放（null）/ 失败
+    ▼
+命中计算：播放进程 layer0 窗口 ∩ NSScreen.frame → 命中屏集合
+          （无窗口时回退所有显示器）
+    │
+    ▼
+applyMediaPlaybackDisplayIDs(displayIDs)
+    │
+    ▼
+ScreenContext.setMediaPlaybackPresent
+    │   ├── active：媒体播放中不启闲置计时（结束后恢复）
+    │   └── idle：媒体开始播放 → beginExit（壁纸让位）
+    ▼
+idleTimerFired / resetIdleTimer / forcePlayNow 均带 mediaPlaybackBlocksIdle 守卫
+```
 ```
 
 ### 6. 关键 API / 框架依赖
@@ -296,3 +340,5 @@ UI（面板「已暂停：[原因]」+ 设置「当前已暂停」）← activeR
 | 显示器睡眠通知不可靠（部分系统 `screensDidSleep/Wake` 与 CGDisplay 重构回调不触发） | 显示器睡眠条件检测失效 | 轮询 `CGDisplayIsAsleep`（与窗口轮询共用 2 秒定时器），重构回调仅作事件驱动加速 |
 | 锁屏窗口误判全屏应用 | 锁屏时误判有全屏应用（活跃屏暂停微跳） | 全屏检测仅匹配 layer 0 窗口，锁屏窗口（layer 2004）不命中 |
 | 低电量阈值边界抖动 | 电量在阈值附近波动导致频繁暂停/恢复 | 恢复线 = 阈值 + 5% 防抖滞后，阈值与恢复线之间保持现状 |
+| MediaRemote 私有框架查询依赖打包辅助组件 | 直接进程内调用被 mediaremoted 拒绝；第三方组件（nowplaying-cli）为 GPL-3.0 | 借助 Apple 签名宿主 `/usr/bin/perl` 查询（实测可用）；组件与许可证随应用打包并在 `Resources/MediaRemote/README.md` 说明来源与构建；WallFlux 整体采用 GPL-3.0 兼容许可 |
+| MediaRemote 私有 API 未来版本可能变化或失效 | 媒体播放检测失效，壁纸可能覆盖播放内容 | 查询失败一律视为无播放（保守）；开关关闭即回归现状 |

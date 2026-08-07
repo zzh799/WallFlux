@@ -18,6 +18,11 @@ struct GlobalSettingsView: View {
                 Text("显示器上超过该时长无鼠标或键盘输入，即判定为闲置并开始循环播放动态壁纸。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Toggle("其他应用播放媒体时保持活跃", isOn: boolBinding(keyPath: \.mediaPlaybackKeepsActive))
+                Text("Chrome、Safari、播放器等应用正在播放视频、直播或音乐时，所在显示器不进入闲置循环播放，避免壁纸覆盖播放内容；媒体暂停或结束后恢复。不影响微跳。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("微跳模式") {

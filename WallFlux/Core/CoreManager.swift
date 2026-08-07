@@ -14,6 +14,8 @@ final class CoreManager: ObservableObject {
     lazy var screenManager = ScreenManager(configStore: configStore, assetStore: assetStore)
     /// 智能暂停条件监测（设计 §2）
     private(set) lazy var smartPauseMonitor = SmartPauseMonitor(configStore: configStore, screenManager: screenManager)
+    /// 媒体播放监测（其他应用播放视频/直播/音乐时命中屏不进入闲置播放）
+    private(set) lazy var mediaPlaybackMonitor = MediaPlaybackMonitor(configStore: configStore, screenManager: screenManager)
 
     /// 全局暂停开关（面板上的快速暂停/恢复）
     @Published var isPaused = false {
@@ -37,6 +39,7 @@ final class CoreManager: ObservableObject {
 
         screenManager.start()
         smartPauseMonitor.start()
+        mediaPlaybackMonitor.start()
 
         // 辅助功能权限变化 → 启用/禁用闲置置顶播放。无权限时输入检测失效，
         // 若仍进入闲置会置顶播放且永远无法退出，用户将被锁死在壁纸窗口下。
@@ -54,6 +57,7 @@ final class CoreManager: ObservableObject {
         trustSubscription = nil
         idleDetector.stop()
         smartPauseMonitor.stop()
+        mediaPlaybackMonitor.stop()
         screenManager.shutdown()
     }
 
