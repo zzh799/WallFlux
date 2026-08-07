@@ -25,7 +25,9 @@ final class ScreenManager: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     private var isPaused = false
     /// 最近一次智能暂停推送（新接入的显示器立即应用当前条件）
-    private var lastSmartPause = (global: Set<SmartPauseReason>(), fullscreen: Set<String>())
+    private var lastSmartPause: Set<SmartPauseReason> = []
+    /// 最近一次全屏命中检测（新接入的显示器立即应用当前微跳暂停状态）
+    private var lastFullscreenDisplayIDs: Set<String> = []
 
     init(configStore: ConfigStore, assetStore: AssetStore) {
         self.configStore = configStore
@@ -88,24 +90,21 @@ final class ScreenManager: ObservableObject {
         contexts.forEach { $0.setManuallyPaused(paused) }
     }
 
-    /// 智能暂停条件推送（SmartPauseMonitor 驱动）：全局条件 + 全屏命中显示器 → 各屏暂停源集合
-    func applySmartPause(globalReasons: Set<SmartPauseReason>, fullscreenDisplayIDs: Set<String>) {
-        lastSmartPause = (globalReasons, fullscreenDisplayIDs)
-        contexts.forEach { $0.setSmartPauseReasons(reasons(for: $0.displayID)) }
+    /// 智能暂停条件推送（SmartPauseMonitor 驱动）：全局条件 → 各屏暂停源集合
+    func applySmartPause(globalReasons: Set<SmartPauseReason>) {
+        lastSmartPause = globalReasons
+        contexts.forEach { $0.setSmartPauseReasons(globalReasons) }
+    }
+
+    /// 全屏应用命中推送（SmartPauseMonitor 驱动）：命中屏存在全屏/最大化窗口时暂停微跳
+    func applyFullscreenDisplayIDs(_ displayIDs: Set<String>) {
+        lastFullscreenDisplayIDs = displayIDs
+        contexts.forEach { $0.setFullscreenPresent(displayIDs.contains($0.displayID)) }
     }
 
     /// 系统唤醒：所有显示器重置为活跃（设计 §2.4，唤醒后壁纸不应立即置顶播放）
     func handleSystemWake() {
         contexts.forEach { $0.resetToActive() }
-    }
-
-    /// 计算指定显示器的智能暂停源集合（全局条件 ∪ 全屏条件）
-    private func reasons(for displayID: String) -> Set<SmartPauseReason> {
-        var reasons = lastSmartPause.global
-        if lastSmartPause.fullscreen.contains(displayID) {
-            reasons.insert(.fullscreenApp)
-        }
-        return reasons
     }
 
     /// 辅助功能权限（输入监控可用性）：无权限时禁止闲置置顶播放，防止窗口永远置顶
@@ -155,7 +154,8 @@ final class ScreenManager: ObservableObject {
             if isPaused {
                 ctx.setManuallyPaused(true)
             }
-            ctx.setSmartPauseReasons(reasons(for: id))
+            ctx.setSmartPauseReasons(lastSmartPause)
+            ctx.setFullscreenPresent(lastFullscreenDisplayIDs.contains(id))
         }
     }
 }

@@ -15,7 +15,7 @@ English | [简体中文](README_zh.md)
 - **Graceful exit** - configurable transition when you come back: instant stop or fade-out (0.5 s default); a mouse passing briefly over a playing display never interrupts the wallpaper - it goes back to top-layer playback as soon as the mouse leaves or stops
 - **Screen-saver-level playback** - while playing, the wallpaper window sits at the very top (screen saver layer); the moment the mouse enters, it drops to the desktop layer and yields the screen, never blocking your work
 - **Hot-plug aware** - connecting or disconnecting a display is detected automatically and its configuration is restored
-- **Smart pause** - with any enabled condition hit (system sleep, display sleep, Low Power Mode, battery power, low battery below a threshold with +5% hysteresis, or a fullscreen / maximized app window on that display), wallpaper playback and micro-stepping pause entirely; manual pause and smart pause are independent and OR-ed together
+- **Smart pause** - with any enabled condition hit (system sleep, display sleep, Low Power Mode, battery power, low battery below a threshold with +5% hysteresis), wallpaper playback and micro-stepping pause entirely; manual pause and smart pause are independent and OR-ed together. Additionally, a display with a fullscreen / maximized app window skips micro-stepping (idle screensaver playback is unaffected)
 - **Launch at login** - optional and off by default; a first-launch prompt asks whether to start WallFlux at login, and the toggle in the menu bar panel and Settings stays in sync with the system
 
 ## Requirements

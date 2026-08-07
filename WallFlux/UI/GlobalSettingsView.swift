@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 全局设置（FR-11）：闲置超时 N / 微跳间隔 Y / 微跳帧数 Z / 退出方式
-/// + 设计文档：启动分区（开机自启）、智能暂停分区（总开关 + 6 条件 + 低电量阈值）
+/// + 设计文档：启动分区（开机自启）、智能暂停分区（总开关 + 5 个全局条件 + 低电量阈值）
 struct GlobalSettingsView: View {
     @ObservedObject private var configStore = ConfigStore.shared
     @ObservedObject private var smartPauseMonitor = CoreManager.shared.smartPauseMonitor
@@ -34,6 +34,14 @@ struct GlobalSettingsView: View {
                            ),
                            range: 1...10, unit: "帧")
                 Text("活跃显示器保留壁纸窗口但不播放，每隔微跳间隔向前跳微跳帧数帧，几乎不可察觉地防止烧屏。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("全屏应用中不微跳", isOn: Binding(
+                    get: { configStore.config.microStepPauseOnFullscreen },
+                    set: { newValue in configStore.update { $0.microStepPauseOnFullscreen = newValue } }
+                ))
+                Text("活跃显示器上存在全屏或最大化的应用窗口时不微跳，避免持续在该窗口之上跳帧；退出全屏后自动恢复。闲置播放不受影响。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -73,7 +81,7 @@ struct GlobalSettingsView: View {
 
             Section("智能暂停") {
                 Toggle("启用智能暂停", isOn: boolBinding(keyPath: \.smartPauseEnabled))
-                Text("开启后，任一启用条件命中时暂停全部（或对应）显示器的壁纸播放与微跳；关闭则恢复纯手动控制，各条件开关保留配置但不生效。")
+                Text("开启后，任一启用条件命中时完全暂停所有显示器的壁纸播放与微跳；关闭则回归纯手动控制，各条件开关保留配置但不生效。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -94,10 +102,6 @@ struct GlobalSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    Toggle("全屏应用", isOn: boolBinding(keyPath: \.pauseOnFullscreen))
-                    Text("全屏或最大化的应用窗口所在显示器暂停播放，其余显示器不受影响。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
 
                     smartPauseStatusRow
                 }

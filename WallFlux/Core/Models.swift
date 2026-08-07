@@ -74,14 +74,14 @@ enum DisplayState {
 
 /// 智能暂停原因（设计文档 §2.2 暂停源模型）
 /// 任一启用条件命中即完全暂停（停播放 + 停微跳），无降频中间态。
-/// 作用域：全局条件命中作用于所有屏；全屏应用仅作用于命中的那台屏。
+/// 全部为全局条件，命中作用于所有屏。全屏应用不属于智能暂停：
+/// 它作为微跳模式的独立行为存在（见 `microStepPauseOnFullscreen`）。
 enum SmartPauseReason: String, CaseIterable, Identifiable {
     case systemSleep = "systemSleep"
     case displaySleep = "displaySleep"
     case lowPowerMode = "lowPowerMode"
     case batteryPower = "batteryPower"
     case lowBattery = "lowBattery"
-    case fullscreenApp = "fullscreenApp"
 
     var id: String { rawValue }
 
@@ -93,7 +93,6 @@ enum SmartPauseReason: String, CaseIterable, Identifiable {
         case .lowPowerMode: return "低电量模式"
         case .batteryPower: return "电池供电"
         case .lowBattery: return "低电量"
-        case .fullscreenApp: return "全屏应用"
         }
     }
 
@@ -105,7 +104,6 @@ enum SmartPauseReason: String, CaseIterable, Identifiable {
         case .lowPowerMode: return "关闭系统低电量模式后恢复"
         case .batteryPower: return "接通电源后恢复"
         case .lowBattery: return "充电至阈值以上后恢复"
-        case .fullscreenApp: return "退出全屏应用后恢复"
         }
     }
 }
@@ -134,7 +132,9 @@ struct AppConfig: Codable, Equatable {
     var pauseOnBattery: Bool = true             // 电池供电
     var pauseOnLowBattery: Bool = true          // 低电量阈值
     var lowBatteryThresholdPercent: Double = 40 // 低电量阈值（5...50）
-    var pauseOnFullscreen: Bool = true          // 全屏应用
+    /// 全屏应用暂停微跳（微跳模式）：活跃屏存在全屏/最大化应用窗口时不微跳；
+    /// 闲置屏不受影响，照常循环播放（屏保优先）。不属于智能暂停。
+    var microStepPauseOnFullscreen: Bool = true
 }
 
 // 兼容旧版本持久化数据：新增字段缺失时回退默认值
@@ -146,7 +146,9 @@ extension AppConfig {
         case wallpaperConfigMode, sharedWallpaperType, sharedWallpaperAssetID
         case displayConfigs
         case smartPauseEnabled, pauseOnSleep, pauseOnDisplaySleep, pauseOnLowPowerMode
-        case pauseOnBattery, pauseOnLowBattery, lowBatteryThresholdPercent, pauseOnFullscreen
+        // 存储键沿用旧名 "pauseOnFullscreen"，兼容旧版本持久化数据
+        case pauseOnBattery, pauseOnLowBattery, lowBatteryThresholdPercent,
+             microStepPauseOnFullscreen = "pauseOnFullscreen"
     }
 
     init(from decoder: Decoder) throws {
@@ -168,7 +170,7 @@ extension AppConfig {
         pauseOnBattery = try c.decodeIfPresent(Bool.self, forKey: .pauseOnBattery) ?? true
         pauseOnLowBattery = try c.decodeIfPresent(Bool.self, forKey: .pauseOnLowBattery) ?? true
         lowBatteryThresholdPercent = try c.decodeIfPresent(Double.self, forKey: .lowBatteryThresholdPercent) ?? 40
-        pauseOnFullscreen = try c.decodeIfPresent(Bool.self, forKey: .pauseOnFullscreen) ?? true
+        microStepPauseOnFullscreen = try c.decodeIfPresent(Bool.self, forKey: .microStepPauseOnFullscreen) ?? true
     }
 }
 

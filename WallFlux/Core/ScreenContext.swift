@@ -34,8 +34,10 @@ final class ScreenContext: ObservableObject, Identifiable {
     private var mouseStopTimer: Timer?
     /// 手动暂停源（面板「暂停播放」开关，设计 §2.2 暂停源模型）
     private var isGloballyPaused = false
-    /// 智能暂停源集合：非空即暂停（系统睡眠/显示器睡眠/低电量/电池/全屏等）
+    /// 智能暂停源集合：非空即暂停（系统睡眠/显示器睡眠/低电量模式/电池供电/低电量阈值）
     private var smartPauseReasons: Set<SmartPauseReason> = []
+    /// 该屏当前是否存在全屏/最大化窗口应用（微跳暂停用：仅影响活跃屏微跳，闲置播放不受影响）
+    private var fullscreenPresent = false
     /// 暂停是否已应用（避免重复应用/重复恢复）
     private var isPauseApplied = false
     /// 当前命中的智能暂停原因（按声明顺序，UI 展示用）
@@ -143,6 +145,24 @@ final class ScreenContext: ObservableObject, Identifiable {
         smartPauseReasons = reasons
         activeSmartPauseReasons = SmartPauseReason.allCases.filter { smartPauseReasons.contains($0) }
         refreshPauseState()
+    }
+
+    /// 全屏应用状态更新（ScreenManager 推送）：该屏存在全屏/最大化窗口时暂停微跳
+    func setFullscreenPresent(_ present: Bool) {
+        guard present != fullscreenPresent else { return }
+        fullscreenPresent = present
+        // 仅对活跃屏生效：闲置/退出状态不受影响（闲置屏即使有全屏应用仍置顶循环播放）
+        guard state == .active, !isPaused else { return }
+        if microStepPausedByFullscreen {
+            microStepTimer?.invalidate(); microStepTimer = nil
+        } else {
+            startMicroStepTimer()
+        }
+    }
+
+    /// 全屏应用是否暂停微跳：配置开启且该屏存在全屏应用时成立
+    private var microStepPausedByFullscreen: Bool {
+        configStore.config.microStepPauseOnFullscreen && fullscreenPresent
     }
 
     /// 系统唤醒后重置为活跃（设计 §2.4）：idle 屏退出播放回 active，active 屏重置闲置计时器。
@@ -347,7 +367,7 @@ final class ScreenContext: ObservableObject, Identifiable {
     }
 
     private func microStepFired() {
-        guard state == .active, !isPaused else { return }
+        guard state == .active, !isPaused, !microStepPausedByFullscreen else { return }
         let frames = max(1, configStore.config.microStepFrameCount)
         engine?.stepForward(displayID: displayID, frames: frames)
     }
@@ -367,6 +387,7 @@ final class ScreenContext: ObservableObject, Identifiable {
     private func startMicroStepTimer() {
         microStepTimer?.invalidate()
         guard !isPaused else { return } // 暂停中不启动微跳计时（恢复时由 applyResume 启动）
+        guard !microStepPausedByFullscreen else { return } // 全屏应用中暂停微跳（退出全屏后由 setFullscreenPresent 重启）
         let interval = max(1, configStore.config.microStepIntervalSeconds)
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             self?.microStepFired()

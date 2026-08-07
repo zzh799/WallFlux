@@ -6,12 +6,13 @@ import os
 
 /// 智能暂停条件监测（设计文档 §2）
 ///
-/// 聚合六个条件的实时状态，推送给 ScreenManager 应用到各显示器：
-/// - 全局条件：系统睡眠 / 显示器睡眠 / 低电量模式 / 电池供电 / 低电量阈值（命中作用于所有屏）
-/// - 单屏条件：全屏应用（每 2 秒轮询 CGWindowList，仅作用于命中的那台屏）
+/// 聚合五个全局条件的实时状态，推送给 ScreenManager 应用到各显示器：
+/// 系统睡眠 / 显示器睡眠 / 低电量模式 / 电池供电 / 低电量阈值（命中作用于所有屏）。
 ///
 /// 二值暂停模型：任一启用条件命中 → 完全暂停（停播放 + 停微跳），无降频中间态。
 /// 总开关 `smartPauseEnabled` 关闭时所有条件不再评估，回归纯手动控制。
+/// 全屏应用不属于智能暂停：它是微跳模式的独立行为（存在全屏应用时该屏暂停微跳、
+/// 闲置屏照常播放），由同一 2 秒轮询检测并单独推送，不随智能暂停总开关关闭。
 final class SmartPauseMonitor: ObservableObject {
     private let logger = Logger(subsystem: "com.wallflux.WallFlux", category: "SmartPauseMonitor")
     private let configStore: ConfigStore
@@ -22,15 +23,15 @@ final class SmartPauseMonitor: ObservableObject {
     /// 低电量恢复滞后：恢复线 = 暂停线（阈值）+ 5%（设计 §2.4 防抖滞后）
     private static let lowBatteryHysteresis: Double = 5
 
-    /// 当前命中的智能暂停原因（全局 ∪ 全屏，UI 展示用）
+    /// 当前命中的智能暂停原因（全局条件，UI 展示用）
     @Published private(set) var activeReasons: [SmartPauseReason] = []
 
     private var observers: [NSObjectProtocol] = []
-    private var fullscreenTimer: Timer?
+    private var pollTimer: Timer?
     private var powerSourceSource: CFRunLoopSource?
     /// 最近一次全屏命中列表（避免重复推送）
     private var lastFullscreenDisplayIDs: Set<String> = []
-    /// 最近一次推送的全局条件集合（推送时与全屏列表合并）
+    /// 最近一次推送的全局条件集合
     private var globalReasons: Set<SmartPauseReason> = []
 
     // 条件实时状态
@@ -41,8 +42,8 @@ final class SmartPauseMonitor: ObservableObject {
     private var batteryPercent = 100.0
     /// 低电量滞后状态：暂停线 = 阈值，恢复线 = 阈值 + 5%
     private var lowBatteryActive = false
-    /// 全屏相关配置是否生效（配置变更时据此判断是否需要立即重测全屏）
-    private var fullscreenConfigEnabled = false
+    /// 全屏检测开关是否生效（配置变更时据此判断是否立即重测全屏）
+    private var fullscreenDetectionEnabled = false
 
     /// CGDisplay 重构回调（blanking / 唤醒检测，需与移除时使用同一函数指针）
     private static let displayReconfigurationCallback: CGDisplayReconfigurationCallBack = { _, _, userInfo in
@@ -59,7 +60,7 @@ final class SmartPauseMonitor: ObservableObject {
     func start() {
         lowPowerModeEnabled = ProcessInfo.processInfo.isLowPowerModeEnabled
         refreshPowerState()
-        fullscreenConfigEnabled = isFullscreenConfigEnabled
+        fullscreenDetectionEnabled = isFullscreenDetectionEnabled
 
         // 系统睡眠 / 唤醒（设计 §2.4：睡眠前全部屏暂停；唤醒后重置闲置计时为 active 再恢复）
         observers.append(NotificationCenter.default.addObserver(
@@ -75,7 +76,7 @@ final class SmartPauseMonitor: ObservableObject {
         })
 
         // 显示器睡眠：实测 NSWorkspace screensDidSleep/Wake 与 CGDisplay 重构回调在本环境均不触发，
-        // 改由 2 秒轮询 CGDisplayIsAsleep 检测（与全屏轮询共用定时器）；
+        // 改由 2 秒轮询 CGDisplayIsAsleep 检测（与全屏检测共用定时器）；
         // 保留重构回调作为事件驱动加速（部分系统上显示器睡眠/唤醒会触发）
         CGDisplayRegisterReconfigurationCallback(Self.displayReconfigurationCallback,
                                                  Unmanaged.passUnretained(self).toOpaque())
@@ -96,12 +97,12 @@ final class SmartPauseMonitor: ObservableObject {
             self?.handleConfigChange()
         }
 
-        // 全屏轮询（设计 §2.4：每 2 秒轮询 CGWindowList）
+        // 轮询定时器（设计 §2.4）：每 2 秒检测显示器睡眠（CGDisplayIsAsleep）与全屏窗口
         let timer = Timer(timeInterval: Self.fullscreenPollInterval, repeats: true) { [weak self] _ in
             self?.pollFullscreen()
         }
         RunLoop.main.add(timer, forMode: .common)
-        fullscreenTimer = timer
+        pollTimer = timer
 
         evaluateAll()
         logger.info("智能暂停监测已启动")
@@ -110,8 +111,8 @@ final class SmartPauseMonitor: ObservableObject {
     func stop() {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers.removeAll()
-        fullscreenTimer?.invalidate()
-        fullscreenTimer = nil
+        pollTimer?.invalidate()
+        pollTimer = nil
         CGDisplayRemoveReconfigurationCallback(Self.displayReconfigurationCallback,
                                                Unmanaged.passUnretained(self).toOpaque())
         if let powerSourceSource {
@@ -179,15 +180,15 @@ final class SmartPauseMonitor: ObservableObject {
 
     // MARK: - 条件评估
 
-    private var isFullscreenConfigEnabled: Bool {
-        configStore.config.smartPauseEnabled && configStore.config.pauseOnFullscreen
+    private var isFullscreenDetectionEnabled: Bool {
+        configStore.config.microStepPauseOnFullscreen
     }
 
     private func handleConfigChange() {
         // 全屏开关变化：立即重测并推送（否则等下一个轮询周期）
-        let enabled = isFullscreenConfigEnabled
-        if enabled != fullscreenConfigEnabled {
-            fullscreenConfigEnabled = enabled
+        let enabled = isFullscreenDetectionEnabled
+        if enabled != fullscreenDetectionEnabled {
+            fullscreenDetectionEnabled = enabled
             pollFullscreen()
         }
         evaluateGlobalConditions()
@@ -233,12 +234,12 @@ final class SmartPauseMonitor: ObservableObject {
         }
     }
 
-    /// 全屏应用轮询（设计 §2.4）：存在 layer 0 普通窗口完全覆盖某屏工作区 = 全屏/最大化 → 该屏暂停。
+    /// 每 2 秒轮询：检测全屏/最大化窗口命中的显示器（供微跳暂停使用），
     /// 同时顺带刷新显示器睡眠状态（CGDisplayIsAsleep 轮询，通知不可靠）
     private func pollFullscreen() {
         refreshDisplayBlankedState()
         let ids: Set<String>
-        if isFullscreenConfigEnabled {
+        if isFullscreenDetectionEnabled {
             ids = detectFullscreenDisplayIDs()
         } else {
             ids = []
@@ -255,21 +256,17 @@ final class SmartPauseMonitor: ObservableObject {
     }
 
     private func pushState() {
-        screenManager?.applySmartPause(globalReasons: globalReasons,
-                                       fullscreenDisplayIDs: lastFullscreenDisplayIDs)
-        var active = globalReasons
-        if !lastFullscreenDisplayIDs.isEmpty {
-            active.insert(.fullscreenApp)
-        }
-        activeReasons = SmartPauseReason.allCases.filter { active.contains($0) }
+        screenManager?.applySmartPause(globalReasons: globalReasons)
+        screenManager?.applyFullscreenDisplayIDs(lastFullscreenDisplayIDs)
+        activeReasons = SmartPauseReason.allCases.filter { globalReasons.contains($0) }
     }
 
     // MARK: - 全屏检测
 
-    /// 检测命中全屏/最大化的显示器集合。
+    /// 检测命中全屏/最大化的显示器集合（供微跳暂停：该屏活跃时不微跳）。
     /// 判定：layer 0 普通窗口的 bounds 完全覆盖某屏工作区（visibleFrame，不含菜单栏/程序坞）。
-    /// 真正的 macOS 全屏（覆盖完整 frame 含菜单栏区域）同样覆盖工作区，一并命中；
-    /// 最大化窗口恰好铺满工作区，也算（设计 §2.4）。窗口坐标与 NSScreen 坐标系不同，需换算。
+    /// 真正的 macOS 全屏（覆盖完整 frame 含菜单栏区域）以及最大化窗口（铺满工作区）均命中；
+    /// 锁屏窗口（layer 2004）不命中。窗口坐标与 AppKit 坐标系不同，需换算。
     private func detectFullscreenDisplayIDs() -> Set<String> {
         guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
             return []
