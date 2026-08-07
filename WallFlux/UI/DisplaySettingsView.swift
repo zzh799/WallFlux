@@ -10,6 +10,7 @@ struct DisplaySettingsView: View {
     @ObservedObject private var screenManager: ScreenManager
     @ObservedObject private var configStore: ConfigStore
     @ObservedObject private var assetStore: AssetStore
+    @ObservedObject private var idleDetector: IdleDetector
     /// 素材缩略图缓存（后台生成，素材网格复用；共享实例跨窗口会话保持）
     @StateObject private var thumbnails = ThumbnailLoader.shared
     /// 当前选择的显示器 ID；空字符串表示未选择（视图会自动回退到第一个显示器）
@@ -25,18 +26,18 @@ struct DisplaySettingsView: View {
         self.screenManager = core.screenManager
         self.configStore = core.configStore
         self.assetStore = core.assetStore
+        self.idleDetector = core.idleDetector
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            modePicker
+            modeToolbar
 
             if configStore.config.wallpaperConfigMode == .allDisplays {
                 sourceSplit
             } else if screenManager.contexts.isEmpty {
                 emptyState
             } else {
-                displayPicker
                 sourceSplit
             }
         }
@@ -68,17 +69,56 @@ struct DisplaySettingsView: View {
         }
     }
 
-    // MARK: - 顶部控件
+    // MARK: - 顶部工具栏
 
-    /// 配置方式单选：所有显示器 / 单独设置
-    private var modePicker: some View {
-        Picker("壁纸配置方式", selection: wallpaperModeBinding) {
+    /// 配置方式横向单选框 + 「立即播放动态壁纸」按钮一行排布；
+    /// 「单独设置」模式下在单选框右侧内联显示器选择菜单；
+    /// macOS 无原生横向 radioGroup，用系统符号（largecircle.fill.circle / circle）模拟原生单选框外观
+    private var modeToolbar: some View {
+        HStack(spacing: 20) {
             ForEach(WallpaperConfigMode.allCases) { mode in
-                Text(mode.displayName).tag(mode)
+                modeRadio(mode)
             }
+
+            if configStore.config.wallpaperConfigMode == .perDisplay,
+               !screenManager.contexts.isEmpty {
+                Divider()
+                    .frame(height: 14)
+                displayPicker
+            }
+
+            Spacer()
+            playNowButton
         }
-        .pickerStyle(.radioGroup)
-        .accessibilityLabel("壁纸配置方式")
+    }
+
+    private func modeRadio(_ mode: WallpaperConfigMode) -> some View {
+        let isSelected = configStore.config.wallpaperConfigMode == mode
+        return Button {
+            wallpaperModeBinding.wrappedValue = mode
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                Text(mode.displayName)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(mode.displayName)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// 「立即播放动态壁纸」：目标显示器立即进入闲置循环播放（等效闲置超时触发），即时预览壁纸
+    private var playNowButton: some View {
+        Button {
+            playNow()
+        } label: {
+            Label("立即播放动态壁纸", systemImage: "play.circle.fill")
+        }
+        .disabled(!canPlayNow)
+        .help(playNowHint)
+        .accessibilityHint(playNowHint)
     }
 
     private var displayPicker: some View {
@@ -89,7 +129,7 @@ struct DisplaySettingsView: View {
         }
         .pickerStyle(.menu)
         .labelsHidden()
-        .frame(maxWidth: 340, alignment: .leading)
+        .frame(maxWidth: 300, alignment: .leading)
         .accessibilityLabel("选择显示器")
     }
 
@@ -394,6 +434,34 @@ struct DisplaySettingsView: View {
                 configStore.update { $0.wallpaperConfigMode = newMode }
             }
         )
+    }
+
+    // MARK: - 立即播放
+
+    /// 「立即播放动态壁纸」按钮可用条件：需已授予辅助功能权限（无输入检测时禁止置顶播放，
+    /// 防止进入后无法退出）；全局手动暂停中不响应。
+    private var canPlayNow: Bool {
+        idleDetector.isTrusted && !core.isPaused
+    }
+
+    private var playNowHint: String {
+        if !idleDetector.isTrusted {
+            return "需先在系统设置中授予辅助功能权限"
+        }
+        if core.isPaused {
+            return "已暂停播放，恢复后可立即播放"
+        }
+        return "立即全屏播放当前壁纸，移动鼠标或按键后退出"
+    }
+
+    /// 按配置方式确定目标显示器（所有显示器 / 当前选中），立即进入闲置循环播放
+    private func playNow() {
+        let targets = configStore.config.wallpaperConfigMode == .allDisplays
+            ? screenManager.contexts
+            : screenManager.contexts.filter { $0.displayID == selectedDisplayID }
+        for context in targets {
+            context.forcePlayNow()
+        }
     }
 
     /// 确保选中项有效：显示器热插拔或列表变化后，失效的选中项自动回退到第一个显示器

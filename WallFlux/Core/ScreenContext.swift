@@ -289,6 +289,14 @@ final class ScreenContext: ObservableObject, Identifiable {
         enterActive()
     }
 
+    /// 手动立即播放（设置页「立即播放动态壁纸」按钮）：与闲置超时相同的迁移路径，
+    /// 立即进入闲置循环播放供即时预览。暂停中或无输入监控时不生效（与 idleTimerFired
+    /// 相同的安全约束：无输入检测时禁止置顶播放，防止无法退出）。
+    func forcePlayNow() {
+        guard state == .active, !isPaused, inputMonitoringEnabled else { return }
+        idleTimerFired()
+    }
+
     private func idleTimerFired() {
         guard state == .active, !isPaused else { return }
         guard inputMonitoringEnabled else { return } // 无输入监控（未授权）时不进入闲置置顶

@@ -23,6 +23,8 @@ final class WallpaperWindow: NSObject {
     private var fps: Double = 30
     /// 素材就绪前暂存的帧位置（视频加载完成后应用）
     private var pendingFrame: Int?
+    /// 当前是否在播放中（播放/暂停/渐隐退出时同步；切换素材后保持原播放状态）
+    private var isPlaying = false
 
     init(screen: NSScreen, asset: WallpaperAsset) {
         assetID = asset.id
@@ -45,13 +47,16 @@ final class WallpaperWindow: NSObject {
         nsWindow.orderFrontRegardless()
     }
 
-    /// 切换素材：重建渲染内容
+    /// 切换素材：重建渲染内容，并在播放状态下恢复播放（否则新内容停留在暂停首帧）
     func reload(asset: WallpaperAsset, screen: NSScreen) {
         teardownContent()
         assetID = asset.id
         pendingFrame = nil
         nsWindow.setFrame(screen.frame, display: true)
         load(asset: asset, screen: screen)
+        if isPlaying {
+            play()
+        }
         nsWindow.orderFrontRegardless()
     }
 
@@ -88,6 +93,7 @@ final class WallpaperWindow: NSObject {
         } else {
             renderer?.startPlayback()
         }
+        isPlaying = true
         applyLevel(playing: true)
     }
 
@@ -97,6 +103,7 @@ final class WallpaperWindow: NSObject {
         } else {
             renderer?.stopPlayback()
         }
+        isPlaying = false
         applyLevel(playing: false)
     }
 
@@ -142,6 +149,7 @@ final class WallpaperWindow: NSObject {
         // 暂停渲染但不走 pause()，避免提前降级窗口层级
         queuePlayer?.pause()
         renderer?.stopPlayback()
+        isPlaying = false
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
