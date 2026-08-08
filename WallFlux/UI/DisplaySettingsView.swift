@@ -483,7 +483,7 @@ struct DisplaySettingsView: View {
 
     // MARK: - 应用选择
 
-    /// 选择壁纸来源：立即应用该类型，素材回退到该类型第一个可用素材
+    /// 选择壁纸来源：立即应用该类型，素材回退到该类型第一个可用素材，并记录最近使用
     private func selectType(_ type: WallpaperType) {
         selectedType = type
         let fallbackID = assetStore.fallbackAsset(for: type.assetKind)?.id ?? ""
@@ -504,9 +504,10 @@ struct DisplaySettingsView: View {
             dc.lastFramePosition = 0
             configStore.updateDisplayConfig(dc)
         }
+        configStore.recordRecentWallpaperUse(type: type, assetID: fallbackID)
     }
 
-    /// 选择素材：立即应用为当前（显示器 / 所有显示器）壁纸
+    /// 选择素材：立即应用为当前（显示器 / 所有显示器）壁纸，并记录最近使用
     private func selectAsset(_ asset: WallpaperAsset) {
         if configStore.config.wallpaperConfigMode == .allDisplays {
             configStore.update { config in
@@ -521,6 +522,9 @@ struct DisplaySettingsView: View {
             dc.wallpaperAssetID = asset.id
             dc.lastFramePosition = 0
             configStore.updateDisplayConfig(dc)
+        }
+        if let type = WallpaperType(assetKind: asset.kind) {
+            configStore.recordRecentWallpaperUse(type: type, assetID: asset.id)
         }
     }
 

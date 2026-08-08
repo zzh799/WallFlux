@@ -28,6 +28,12 @@ enum WallpaperType: String, Codable, CaseIterable, Identifiable {
         case .imageSequence: return .imageSequence
         }
     }
+
+    /// 素材类型 → 壁纸来源类型（最近使用记录用）；素材类型全部一一对应，不会失败
+    init?(assetKind: WallpaperAsset.Kind) {
+        guard let type = WallpaperType.allCases.first(where: { $0.assetKind == assetKind }) else { return nil }
+        self = type
+    }
 }
 
 /// 壁纸退出方式
@@ -126,6 +132,8 @@ struct AppConfig: Codable, Equatable {
     var sharedWallpaperType: WallpaperType = .system
     var sharedWallpaperAssetID: String = "system:.wallpapers/Sequoia Sunrise/Sequoia Sunrise.mov"
     var displayConfigs: [DisplayConfig] = []    // 逐显示器配置（含各显示器帧位置）
+    /// 最近使用的壁纸（菜单栏面板「最近使用」快捷切换，按使用时间倒序）
+    var recentWallpapers: [RecentWallpaperUse] = []
 
     // 智能暂停（设计文档 §3）：总开关 OFF 时各条件开关保留配置但不生效
     var smartPauseEnabled: Bool = true          // 智能暂停总开关
@@ -171,7 +179,7 @@ extension AppConfig {
         case idleTimeoutMinutes, microStepIntervalSeconds, microStepFrameCount, exitMode
         case briefEntryGraceSeconds
         case wallpaperConfigMode, sharedWallpaperType, sharedWallpaperAssetID
-        case displayConfigs
+        case displayConfigs, recentWallpapers
         case smartPauseEnabled, pauseOnSleep, pauseOnDisplaySleep, pauseOnLowPowerMode
         // 存储键沿用旧名 "pauseOnFullscreen"，兼容旧版本持久化数据
         case pauseOnBattery, pauseOnLowBattery, lowBatteryThresholdPercent,
@@ -190,6 +198,7 @@ extension AppConfig {
         sharedWallpaperType = try c.decodeIfPresent(WallpaperType.self, forKey: .sharedWallpaperType) ?? .system
         sharedWallpaperAssetID = try c.decodeIfPresent(String.self, forKey: .sharedWallpaperAssetID) ?? "system:.wallpapers/Sequoia Sunrise/Sequoia Sunrise.mov"
         displayConfigs = try c.decodeIfPresent([DisplayConfig].self, forKey: .displayConfigs) ?? []
+        recentWallpapers = try c.decodeIfPresent([RecentWallpaperUse].self, forKey: .recentWallpapers) ?? []
         // 智能暂停（旧版本数据缺省时全部回退默认值）
         smartPauseEnabled = try c.decodeIfPresent(Bool.self, forKey: .smartPauseEnabled) ?? true
         pauseOnSleep = try c.decodeIfPresent(Bool.self, forKey: .pauseOnSleep) ?? true
@@ -280,6 +289,15 @@ struct MediaAppWhitelist {
 
     /// 全部可匹配的身份键（bundle ID 集合，含历史变体）
     static var allKeys: [String] { all.flatMap(\.bundleIDs) }
+}
+
+/// 最近使用的壁纸记录（菜单栏面板「最近使用」快捷切换，按使用时间倒序）
+struct RecentWallpaperUse: Codable, Equatable, Identifiable {
+    var assetID: String
+    var type: WallpaperType
+    var lastUsedAt: Date
+
+    var id: String { assetID }
 }
 
 /// 单个显示器的配置，以显示器唯一 ID 标识（热插拔后按 ID 恢复）

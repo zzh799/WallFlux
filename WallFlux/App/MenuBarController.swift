@@ -36,4 +36,12 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
     }
+
+    // MARK: - NSPopoverDelegate
+
+    /// 面板每次打开前：刷新辅助功能权限（授权后打开面板立即生效，无需等轮询或点击面板）
+    /// 并递增 panelSessionID，让面板内的会话级快照（最近使用排序）以最新记录重建
+    func popoverWillShow(_ notification: Notification) {
+        core.panelWillOpen()
+    }
 }

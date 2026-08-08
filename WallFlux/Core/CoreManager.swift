@@ -22,6 +22,17 @@ final class CoreManager: ObservableObject {
         didSet { screenManager.setPaused(isPaused) }
     }
 
+    /// 面板打开计数：菜单栏面板每次打开时 +1，面板内会话级快照据此刷新
+    /// （最近使用排序不在会话内实时重排，避免点击后列表跳动；下次打开时生效）
+    @Published var panelSessionID = 0
+
+    /// 面板打开时的状态刷新（MenuBarController.popoverWillShow 调用）
+    func panelWillOpen() {
+        // 立即反映最新辅助功能权限（授权后无需等待 5 秒轮询或点击面板）
+        idleDetector.refreshTrust()
+        panelSessionID += 1
+    }
+
     /// 鼠标最近一次事件所在显示器的 displayID（用于检测鼠标移入/移出）
     private var lastMouseDisplayID: String?
     /// 辅助功能权限订阅：无权限时禁止闲置置顶播放

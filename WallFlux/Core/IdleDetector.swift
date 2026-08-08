@@ -23,7 +23,6 @@ final class IdleDetector: ObservableObject {
 
     @Published private(set) var isTrusted = false
     @Published private(set) var isRunning = false
-
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var reconnectTimer: Timer?
@@ -165,10 +164,10 @@ final class IdleDetector: ObservableObject {
 
     // MARK: - 私有
 
-    private func refreshTrust() {
+    /// 刷新辅助功能权限状态（面板打开 / 应用激活时主动调用，及时反映授权结果）
+    func refreshTrust() {
         isTrusted = AXIsProcessTrusted()
     }
-
     private func ensureTap() {
         if let tap, CGEvent.tapIsEnabled(tap: tap) { return }
         destroyTap()

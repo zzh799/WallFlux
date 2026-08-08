@@ -121,6 +121,13 @@ AppConfig {
     sharedWallpaperType: WallpaperType        // 所有显示器模式下的共享类型
     sharedWallpaperAssetID: String            // 所有显示器模式下的共享素材 ID
     displayConfigs: [DisplayConfig]           // 逐显示器配置（含各显示器帧位置）
+    recentWallpapers: [RecentWallpaperUse]    // 最近使用壁纸（按使用时间倒序，上限 10）
+}
+
+RecentWallpaperUse {
+    assetID: String               // 素材 ID
+    type: WallpaperType           // 素材来源类型
+    lastUsedAt: Date              // 最近一次使用时间
 }
 
 DisplayConfig {
@@ -132,6 +139,7 @@ DisplayConfig {
 ```
 
 - 壁纸解析规则：`wallpaperConfigMode == .allDisplays` 时所有显示器统一使用 `sharedWallpaperType` / `sharedWallpaperAssetID`（素材缺失时回退到该类型第一个可用素材）；`.perDisplay` 时各显示器使用自己的 `DisplayConfig`。
+- 最近使用壁纸：设置页选中素材（来源切换 / 素材选中 / Aerial 下载应用）与菜单栏面板「最近使用」快捷切换时记录（同素材去重置顶，上限 10）。面板快捷切换为「应用到所有显示器」语义：`.allDisplays` 写共享壁纸，`.perDisplay` 写各显示器独立配置（与显示器列表显示一致），两种模式均重置全部帧位置从头播放。
 - 兼容性：`AppConfig` 自定义 `init(from:)`，旧版本持久化数据缺少新增字段时回退默认值（合成 Codable 对缺失键会抛错，不能依赖属性默认值）。
 
 #### 3.5 AssetStore — 素材管理
