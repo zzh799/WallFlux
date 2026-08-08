@@ -141,6 +141,24 @@ struct AppConfig: Codable, Equatable {
     /// 其他应用播放媒体（视频/直播/音乐等）时保持活跃：命中屏不进入闲置循环播放，
     /// 避免壁纸覆盖播放内容；媒体暂停/结束后恢复。不属于智能暂停（不暂停微跳）。
     var mediaPlaybackKeepsActive: Bool = true
+    /// 媒体保持活跃时忽略的应用（身份键集合）：被忽略的应用即使正在出声也不命中，
+    /// 所在屏可正常进入闲置循环播放。发现历史照常记录。
+    var ignoredAudioAppKeys: [String] = []
+    /// 本机播放过声音的应用（CoreAudio 进程级检测累积记录，设置「声音应用」页展示）
+    var audioAppHistory: [AudioAppRecord] = []
+}
+
+/// 单个应用的音频播放记录（发现历史与「正在播放」列表共用）
+struct AudioAppRecord: Codable, Equatable, Identifiable {
+    /// 稳定身份键：bundle ID（无 bundle ID 的进程为 "proc:<进程名>"）
+    var key: String
+    var bundleID: String?
+    /// 应用名（NSRunningApplication 本地化名称，进程退出后以历史为准）
+    var name: String
+    /// 最近一次播放声音的时间
+    var lastPlayedAt: Date
+
+    var id: String { key }
 }
 
 // 兼容旧版本持久化数据：新增字段缺失时回退默认值
@@ -154,7 +172,8 @@ extension AppConfig {
         case smartPauseEnabled, pauseOnSleep, pauseOnDisplaySleep, pauseOnLowPowerMode
         // 存储键沿用旧名 "pauseOnFullscreen"，兼容旧版本持久化数据
         case pauseOnBattery, pauseOnLowBattery, lowBatteryThresholdPercent,
-             microStepPauseOnFullscreen = "pauseOnFullscreen", mediaPlaybackKeepsActive
+             microStepPauseOnFullscreen = "pauseOnFullscreen", mediaPlaybackKeepsActive,
+             ignoredAudioAppKeys, audioAppHistory
     }
 
     init(from decoder: Decoder) throws {
@@ -178,6 +197,9 @@ extension AppConfig {
         lowBatteryThresholdPercent = try c.decodeIfPresent(Double.self, forKey: .lowBatteryThresholdPercent) ?? 40
         microStepPauseOnFullscreen = try c.decodeIfPresent(Bool.self, forKey: .microStepPauseOnFullscreen) ?? true
         mediaPlaybackKeepsActive = try c.decodeIfPresent(Bool.self, forKey: .mediaPlaybackKeepsActive) ?? true
+        // 声音应用忽略名单与发现历史（旧版本数据缺省时回退空）
+        ignoredAudioAppKeys = try c.decodeIfPresent([String].self, forKey: .ignoredAudioAppKeys) ?? []
+        audioAppHistory = try c.decodeIfPresent([AudioAppRecord].self, forKey: .audioAppHistory) ?? []
     }
 }
 

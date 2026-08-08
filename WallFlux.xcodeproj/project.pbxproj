@@ -29,6 +29,7 @@
 		000000000000000000000210 /* GlobalSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000110 /* GlobalSettingsView.swift */; };
 		000000000000000000000211 /* DisplaySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000111 /* DisplaySettingsView.swift */; };
 		000000000000000000000220 /* ScreenSaverDownloadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011E /* ScreenSaverDownloadView.swift */; };
+		00000000000000000000022B /* AudioAppsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000021E /* AudioAppsView.swift */; };
 		000000000000000000000213 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000113 /* Components.swift */; };
 		000000000000000000000214 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000116 /* AppKit.framework */; };
 		000000000000000000000215 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000117 /* SwiftUI.framework */; };
@@ -36,10 +37,6 @@
 		000000000000000000000217 /* ImageIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000119 /* ImageIO.framework */; };
 		000000000000000000000218 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011A /* UniformTypeIdentifiers.framework */; };
 		000000000000000000000219 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000115 /* Assets.xcassets */; };
-		000000000000000000000226 /* mediaremote-mini.pl in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000222 /* mediaremote-mini.pl */; };
-		000000000000000000000227 /* MediaRemoteMini.dylib in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000223 /* MediaRemoteMini.dylib */; };
-		000000000000000000000228 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000224 /* LICENSE */; };
-		000000000000000000000229 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000225 /* README.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -65,6 +62,7 @@
 		000000000000000000000111 /* DisplaySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplaySettingsView.swift; sourceTree = "<group>"; };
 		000000000000000000000113 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		00000000000000000000011E /* ScreenSaverDownloadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSaverDownloadView.swift; sourceTree = "<group>"; };
+		00000000000000000000021E /* AudioAppsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioAppsView.swift; sourceTree = "<group>"; };
 		000000000000000000000114 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		000000000000000000000115 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		000000000000000000000116 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
@@ -73,10 +71,6 @@
 		000000000000000000000119 /* ImageIO.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ImageIO.framework; path = System/Library/Frameworks/ImageIO.framework; sourceTree = SDKROOT; };
 		00000000000000000000011A /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		00000000000000000000011B /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
-		000000000000000000000222 /* mediaremote-mini.pl */ = {isa = PBXFileReference; lastKnownFileType = text.script.perl; path = "MediaRemote/mediaremote-mini.pl"; sourceTree = "<group>"; };
-		000000000000000000000223 /* MediaRemoteMini.dylib */ = {isa = PBXFileReference; lastKnownFileType = compiled.mach-o.dylib; path = MediaRemote/MediaRemoteMini.dylib; sourceTree = "<group>"; };
-		000000000000000000000224 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = MediaRemote/LICENSE; sourceTree = "<group>"; };
-		000000000000000000000225 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = MediaRemote/README.md; sourceTree = "<group>"; };
 		00000000000000000000000E /* WallFlux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WallFlux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -122,23 +116,11 @@
 				000000000000000000000008 /* UI */,
 				000000000000000000000114 /* Info.plist */,
 				000000000000000000000115 /* Assets.xcassets */,
-				000000000000000000000221 /* Resources */,
 			);
 			path = WallFlux;
 			sourceTree = "<group>";
 		};
-		000000000000000000000221 /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				000000000000000000000222 /* mediaremote-mini.pl */,
-				000000000000000000000223 /* MediaRemoteMini.dylib */,
-				000000000000000000000224 /* LICENSE */,
-				000000000000000000000225 /* README.md */,
-			);
-			path = Resources;
-			sourceTree = "<group>";
-		};
-		000000000000000000000005 /* App */ = {
+			000000000000000000000005 /* App */ = {
 			isa = PBXGroup;
 			children = (
 				000000000000000000000101 /* AppDelegate.swift */,
@@ -184,6 +166,7 @@
 				000000000000000000000110 /* GlobalSettingsView.swift */,
 				000000000000000000000111 /* DisplaySettingsView.swift */,
 				00000000000000000000011E /* ScreenSaverDownloadView.swift */,
+				00000000000000000000021E /* AudioAppsView.swift */,
 				000000000000000000000113 /* Components.swift */,
 			);
 			path = UI;
@@ -261,10 +244,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000219 /* Assets.xcassets in Resources */,
-				000000000000000000000226 /* mediaremote-mini.pl in Resources */,
-				000000000000000000000227 /* MediaRemoteMini.dylib in Resources */,
-				000000000000000000000228 /* LICENSE in Resources */,
-				000000000000000000000229 /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -297,6 +276,7 @@
 				000000000000000000000210 /* GlobalSettingsView.swift in Sources */,
 				000000000000000000000211 /* DisplaySettingsView.swift in Sources */,
 				000000000000000000000220 /* ScreenSaverDownloadView.swift in Sources */,
+				00000000000000000000022B /* AudioAppsView.swift in Sources */,
 				000000000000000000000213 /* Components.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

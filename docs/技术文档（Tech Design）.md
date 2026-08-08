@@ -177,21 +177,20 @@ DisplayConfig {
 
 #### 3.8 MediaPlaybackMonitor — 媒体播放监测
 
-- 职责：监测其他应用（Chrome/Safari 网页视频、直播、播放器、音乐等）是否正在播放媒体（FR-16），命中媒体播放期间不进入闲置循环播放，避免壁纸覆盖播放内容；不影响微跳（与全屏暂停微跳是两个独立行为）
-- 查询机制（MediaRemote 私有框架「正在播放」通路）：
-  - **为什么不能进程内直连**：mediaremoted 依据调用方代码签名授予 entitlement 位，Apple 签名宿主（如 `/usr/bin/perl`）获得 `entitlements=512`，非 Apple 签名的 ad-hoc/自签二进制一律 `entitlements=0`（实测 macOS 15.7.5）；私有 entitlement（`com.apple.nowplaying.entitlement`、`com.apple.mediaremote.now-playing-read-access` 等）对非 Apple 签名二进制会被 amfid 直接 SIGKILL。因此 WallFlux 自身直连 MediaRemote 私有框架会被拒绝
-  - **打包方案**：以 `/usr/bin/perl`（Apple 签名，携带 entitlements=512）启动打包的 `mediaremote-mini.pl` 加载 `MediaRemoteMini.dylib`（第三方组件，来源 kirtan-shah/nowplaying-cli，GPL-3.0；文件、构建与许可见 `Resources/MediaRemote/README.md`），由 perl 作为宿主查询「正在播放」信息
-  - 调用约定：`/usr/bin/perl <resources>/mediaremote-mini.pl <resources>/MediaRemoteMini.dylib adapter_get_env`，stdout 输出单行 JSON（`playing` / `bundleIdentifier` / `processIdentifier` / `title` 等），无播放输出 `null`；单次调用实测约 20-30ms。注意 perl 为 hardened runtime，路径必须为绝对路径（从 `Bundle.main.resourceURL` 取）
+- 职责：监测其他应用（Chrome/Safari 网页视频、直播、播放器、音乐等）是否正在输出声音（FR-16），命中显示器不进入闲置循环播放，避免壁纸覆盖播放内容；不影响微跳（与全屏暂停微跳是两个独立行为）
+- 查询机制（CoreAudio 进程级公开 API，方案 B'，参考 sountop，MIT）：
+  - 枚举 `kAudioHardwarePropertyProcessObjectList`（系统对象）得全部音频客户端进程对象；逐个查 `kAudioProcessPropertyIsRunningOutput`（是否正在出声）、`kAudioProcessPropertyPID` / `kAudioProcessPropertyBundleID`（进程身份）
+  - 100% 公开 API、零授权、macOS 14 即可用，不再依赖私有 MediaRemote 与第三方 dylib；局限：`IsRunningOutput` 只证明输出 IO 在跑，不保证非静音（静音流也算出声），对「防闲置」足够
+  - 进程筛选：排除音频驱动等系统基础设施（bundle ID 前缀 `com.apple.audio.`）；显示名优先 `NSRunningApplication.localizedName`，渲染/音频子进程（如 Chrome 的 `com.google.Chrome.helper`）按可执行路径（`proc_pidpath`）定位所属 App 包后归到宿主应用名
+- 忽略名单：设置「声音应用」页（第三个 tab）逐应用开关；被忽略应用即使正在出声也不命中（命中计算直接排除），切换后立即重新评估放行；忽略名单与发现历史（bundle ID → 名称 + 最近播放时间）持久化在 ConfigStore（UserDefaults），重启不丢；发现历史始终累积，与开关无关
 - 轮询与推送：
-  - 2 秒定时器（与 SmartPauseMonitor 同节奏），查询在后台队列执行，输出缺失/解析失败/超时视为无播放
-  - 子进程超时兜底：3 秒未退出则 terminate（`readDataToEndOfFile` 随即返回）；上一轮在途时跳过本轮，避免进程堆积
-  - 命中计算：`CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 取播放进程 layer 0 普通窗口，与各 `NSScreen.frame`（同为 CGWindowList 全局显示坐标）判交得命中屏集合；播放进程找不到窗口（后台播放、Safari 的 WebKit.GPU 子进程播放等）时回退命中所有显示器（保守）
-  - 推送 `applyMediaPlaybackDisplayIDs(_:)`；配置开关 `mediaPlaybackKeepsActive` 关闭时不轮询、立即清空命中
+  - 2 秒定时器（与 SmartPauseMonitor 同节奏），枚举在后台队列执行（单轮仅数十个属性查询，开销可忽略）；上一轮在途时跳过本轮
+  - 命中计算：`CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 取出声进程 layer 0 普通窗口，与各 `NSScreen.frame`（同为 CGWindowList 全局显示坐标）判交得命中屏集合；任一出声进程找不到窗口（后台播放、Safari 的 WebKit 子进程播放、Chrome 音频服务进程等）时回退命中所有显示器（保守）
+  - 推送 `applyMediaPlaybackDisplayIDs(_:)`；配置开关 `mediaPlaybackKeepsActive` 关闭时不命中、立即清空命中（发现历史与「正在播放」列表照常维护）
 - 状态机联动（见 §4）：
   - `active`：媒体播放中不启用闲置计时（媒体结束后 `setMediaPlaybackPresent(false)` 重新启动）；媒体开始时若该屏正闲置播放则立即 `beginExit` 让位
   - `idleTimerFired` / `resetIdleTimer` 均带 `mediaPlaybackBlocksIdle` 守卫（自动闲置）；`forcePlayNow`（立即播放，FR-12）为用户显式操作，强制覆盖媒体守卫：预览期间置顶播放且媒体守卫不生效（`manualPreviewActive`），任意输入退出后恢复守卫
   - 暂停（手动/智能）期间不处理媒体变化，恢复时由 `applyResume` 走守卫
-
 ### 4. 状态机
 
 每个显示器的状态流转（`active` / `idle` / `exiting`，宽限为 idle 的子状态）：
@@ -289,11 +288,12 @@ UI（面板「已暂停：[原因]」+ 设置「当前已暂停」）← activeR
 
 ```
 MediaPlaybackMonitor（2 秒轮询）
-    │  /usr/bin/perl mediaremote-mini.pl MediaRemoteMini.dylib adapter_get_env
-    │  → 单行 JSON（playing / processIdentifier）或无播放（null）/ 失败
+    │  CoreAudio 进程级公开 API（方案 B'）
+    │  kAudioHardwarePropertyProcessObjectList 枚举 + kAudioProcessPropertyIsRunningOutput
+    │  → 正在出声的进程（PID / BundleID / 名称），排除 com.apple.audio.* 与忽略名单
     ▼
-命中计算：播放进程 layer0 窗口 ∩ NSScreen.frame → 命中屏集合
-          （无窗口时回退所有显示器）
+命中计算：出声进程 layer0 窗口 ∩ NSScreen.frame → 命中屏集合
+          （任一进程无窗口时回退所有显示器）
     │
     ▼
 applyMediaPlaybackDisplayIDs(displayIDs)
@@ -341,5 +341,6 @@ forcePlayNow（立即播放）为用户显式操作，强制覆盖媒体守卫�
 | 显示器睡眠通知不可靠（部分系统 `screensDidSleep/Wake` 与 CGDisplay 重构回调不触发） | 显示器睡眠条件检测失效 | 轮询 `CGDisplayIsAsleep`（与窗口轮询共用 2 秒定时器），重构回调仅作事件驱动加速 |
 | 锁屏窗口误判全屏应用 | 锁屏时误判有全屏应用（活跃屏暂停微跳） | 全屏检测仅匹配 layer 0 窗口，锁屏窗口（layer 2004）不命中 |
 | 低电量阈值边界抖动 | 电量在阈值附近波动导致频繁暂停/恢复 | 恢复线 = 阈值 + 5% 防抖滞后，阈值与恢复线之间保持现状 |
-| MediaRemote 私有框架查询依赖打包辅助组件 | 直接进程内调用被 mediaremoted 拒绝；第三方组件（nowplaying-cli）为 GPL-3.0 | 借助 Apple 签名宿主 `/usr/bin/perl` 查询（实测可用）；组件与许可证随应用打包并在 `Resources/MediaRemote/README.md` 说明来源与构建；WallFlux 整体采用 GPL-3.0 兼容许可 |
-| MediaRemote 私有 API 未来版本可能变化或失效 | 媒体播放检测失效，壁纸可能覆盖播放内容 | 查询失败一律视为无播放（保守）；开关关闭即回归现状 |
+| 声音意外/静音流误判 | `IsRunningOutput` 只证明输出 IO 在跑，静音流、系统提示音也算「正在出声」 | 对「防闲置」足够；被误判的应用可在「声音应用」页单独忽略，或关闭总开关回归原状 |
+| 出声进程找不到窗口 | 无法定位媒体位置（后台播放、浏览器渲染子进程等） | 回退命中所有显示器（保守）；后续可考虑按 Bundle 归属解析宿主窗口 |
+| 系统音频基础设施进程干扰 | 音频驱动（bundle ID 前缀 `com.apple.audio.`）可能长期显示在出声列表 | 检测时直接排除该类进程；启动时清理历史中已排除的残留记录 |

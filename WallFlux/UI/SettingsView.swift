@@ -8,6 +8,8 @@ struct SettingsView: View {
                 .tabItem { Label("全局设置", systemImage: "gearshape") }
             DisplaySettingsView()
                 .tabItem { Label("显示器", systemImage: "display") }
+            AudioAppsView()
+                .tabItem { Label("声音应用", systemImage: "speaker.wave.2") }
         }
         .frame(minWidth: 760, minHeight: 480)
         .padding(.top, 20)

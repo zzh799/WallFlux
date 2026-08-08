@@ -136,7 +136,7 @@
   - 不区分视频/音频，任何正在播放的媒体（包括音乐）均触发；已暂停的媒体不触发
   - 不影响微跳：与全屏暂停微跳（FR-03）是两个独立行为，命中屏微跳照常进行
   - 默认开启，可在全局设置「闲置检测」分区关闭
-  - 技术实现：基于 MediaRemote 私有框架的「正在播放」信息（通过打包的 perl 辅助组件查询，见技术文档 §3.8）；轮询间隔 2 秒
+  - 技术实现：基于 CoreAudio 进程级公开 API（`kAudioHardwarePropertyProcessObjectList` + `kAudioProcessPropertyIsRunningOutput`，见技术文档 §3.8）；轮询间隔 2 秒
 
 ### 4. 非功能需求
 

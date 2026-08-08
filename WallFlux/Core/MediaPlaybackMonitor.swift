@@ -1,33 +1,45 @@
 import AppKit
+import CoreAudio
+import Darwin
 import Foundation
 import os
 
-/// 媒体播放监测：其他应用播放视频/直播/音乐时，命中显示器不进入闲置循环播放
+/// 媒体播放监测：其他应用正在输出声音（播放音乐/视频/直播等）时，命中显示器不进入闲置循环播放
 ///
-/// 查询机制：以 `/usr/bin/perl` 启动打包的 `mediaremote-mini.pl` 加载
-/// `MediaRemoteMini.dylib`（第三方组件，GPL-3.0，来源与构建见
-/// `Resources/MediaRemote/README.md`）。WallFlux 自身直连 MediaRemote 私有框架
-/// 会被 mediaremoted 以「无 entitlement」拒绝（非 Apple 签名进程无法取得
-/// 读取权限），而系统 perl 带 Apple 签名 entitlement（mediaremoted 授予
-/// entitlements=512），由 perl 作为宿主加载 dylib 即可正常查询。
+/// 查询机制：CoreAudio 进程级公开 API（方案 B'，实现参考 sountop，MIT）：
+/// - 枚举 `kAudioHardwarePropertyProcessObjectList` 得到所有音频客户端进程对象；
+/// - 逐个进程查 `kAudioProcessPropertyIsRunningOutput`（是否正在出声）、
+///   `kAudioProcessPropertyPID` / `kAudioProcessPropertyBundleID`（进程身份）。
+/// 100% 公开 API、零授权、macOS 14 起可用，不依赖私有框架与第三方 dylib。
+/// 相比 MediaRemote「正在播放」通路，本方案能区分具体进程而不是设备级一刀切；
+/// 局限：`IsRunningOutput` 只证明该进程的输出 IO 在跑，不保证信号非静音
+/// （静音/极小音量流也算出声）——对「防闲置」足够。
 ///
 /// 轮询节奏与 SmartPauseMonitor 一致（2 秒），查询在后台队列执行：
-/// - 无播放媒体（或查询失败/超时）→ 不命中任何显示器；
-/// - 有播放媒体 → 播放进程窗口所在显示器命中；找不到窗口（如 Safari 的
-///   WebKit.GPU 子进程播放）时回退命中所有显示器（保守，避免壁纸覆盖媒体）。
+/// - 无出声进程（或查询失败）→ 不命中任何显示器；
+/// - 有出声进程 → 其窗口所在显示器命中；找不到窗口（如 Safari 的
+///   WebKit.GPU 子进程播放、后台播放无窗口）时回退命中所有显示器（保守，
+///   避免壁纸覆盖媒体）。
+///
+/// 忽略名单（设置「声音应用」页）：被用户忽略的应用即使正在出声也不命中，
+/// 所在屏可正常进入闲置循环播放；开启忽略后立即重新评估放行。
 ///
 /// 命中作用（配置 `mediaPlaybackKeepsActive` 开启时）：命中屏不进入闲置循环播放；
 /// 媒体开始时若该屏正处于闲置播放则立即退出，壁纸让位。不影响微跳
-/// （与全屏暂停微跳是两个独立行为）。
-final class MediaPlaybackMonitor {
+/// （与全屏暂停微跳是两个独立行为）。发现历史与「正在播放」列表始终维护
+/// （供设置「声音应用」页展示），与开关无关。
+final class MediaPlaybackMonitor: ObservableObject {
     private let logger = Logger(subsystem: "com.wallflux.WallFlux", category: "MediaPlaybackMonitor")
     private let configStore: ConfigStore
     private weak var screenManager: ScreenManager?
 
     /// 轮询间隔（秒，与全屏检测一致）
     private static let pollInterval: TimeInterval = 2
-    /// 子进程超时（秒）：perl 挂起时终止本轮，避免查询堆积
-    private static let processTimeout: TimeInterval = 3
+    /// 发现历史「最近播放时间」刷新的最小间隔（秒）：限频持久化，避免每次轮询都写配置
+    private static let historyRefreshInterval: TimeInterval = 30
+
+    /// 当前正在出声的应用（含被忽略的，设置页「正在播放」标记用）
+    @Published private(set) var nowPlayingApps: [AudioAppRecord] = []
 
     private var pollTimer: Timer?
     /// 最近一次命中列表（避免重复推送）
@@ -41,7 +53,18 @@ final class MediaPlaybackMonitor {
     }
 
     func start() {
-        // 配置变更：开关开启时立即重测；关闭时立即清空命中（不等待下一个轮询周期）
+        // 清除历史里系统音频基础设施的残留记录（com.apple.audio.* 已不在检测范围内）
+        let staleKeys = configStore.config.audioAppHistory
+            .filter { $0.key.hasPrefix("com.apple.audio.") }
+            .map(\.key)
+        if !staleKeys.isEmpty {
+            configStore.update { config in
+                config.audioAppHistory.removeAll { staleKeys.contains($0.key) }
+            }
+        }
+
+        // 配置变更：开关开启时立即重测；关闭时立即清空命中（不等待下一个轮询周期）；
+        // 忽略名单变化时立即重测，让被忽略的应用立刻放行
         configStore.addChangeHandler { [weak self] in
             guard let self else { return }
             if self.configStore.config.mediaPlaybackKeepsActive {
@@ -57,7 +80,7 @@ final class MediaPlaybackMonitor {
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
         poll()
-        logger.info("媒体播放监测已启动")
+        logger.info("媒体播放监测已启动（CoreAudio 进程级检测）")
     }
 
     func stop() {
@@ -67,17 +90,17 @@ final class MediaPlaybackMonitor {
 
     // MARK: - 轮询
 
-    /// 每 2 秒轮询：查询正在播放的媒体 → 计算命中显示器 → 推送 ScreenManager
+    /// 每 2 秒轮询：枚举出声进程 → 计算命中显示器 → 推送 ScreenManager + 刷新发现历史
+    /// （发现历史与开关无关：即使「媒体保持活跃」关闭也持续记录本机播放过声音的应用）
     private func poll() {
-        guard configStore.config.mediaPlaybackKeepsActive else { return }
         guard !queryInFlight else { return } // 上轮仍在查询，跳过本轮
         queryInFlight = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let ids = self?.queryNowPlayingDisplayIDs() ?? []
+            let snapshot = self?.querySnapshot() ?? PlaybackSnapshot()
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.queryInFlight = false
-                self.pushDisplayIDs(ids)
+                self.applySnapshot(snapshot)
             }
         }
     }
@@ -88,95 +111,241 @@ final class MediaPlaybackMonitor {
         screenManager?.applyMediaPlaybackDisplayIDs(ids)
     }
 
-    // MARK: - 查询与命中计算（后台队列执行）
-
-    /// 查询正在播放的媒体进程，并计算命中的显示器集合；无播放/失败时返回空集合
-    private func queryNowPlayingDisplayIDs() -> Set<String> {
-        guard let info = queryNowPlaying() else { return [] }
-        guard info.playing, info.processIdentifier > 0 else { return [] }
-        let ids = displayIDs(for: info.processIdentifier)
-        logger.info("检测到媒体播放（pid \(info.processIdentifier)），命中 \(ids.count) 个显示器")
-        return ids
+    /// 应用一轮查询结果（主线程）：推送命中显示器 + 更新「正在播放」列表与发现历史
+    private func applySnapshot(_ snapshot: PlaybackSnapshot) {
+        if configStore.config.mediaPlaybackKeepsActive {
+            pushDisplayIDs(snapshot.displayIDs)
+        } else {
+            pushDisplayIDs([])
+        }
+        let now = Date()
+        nowPlayingApps = snapshot.processes.map {
+            AudioAppRecord(key: $0.key, bundleID: $0.bundleID, name: $0.name, lastPlayedAt: now)
+        }
+        updateDiscoveryHistory(playing: snapshot.processes, now: now)
     }
 
-    /// 调用 perl 辅助组件查询「正在播放」信息；输出缺失/异常时返回 nil（视为无播放）
-    private func queryNowPlaying() -> NowPlayingInfo? {
-        guard let resources = Bundle.main.resourceURL else { return nil }
-        let scriptPath = resources.appendingPathComponent("mediaremote-mini.pl").path
-        let dylibPath = resources.appendingPathComponent("MediaRemoteMini.dylib").path
+    // MARK: - 发现历史（设置「声音应用」页）
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
-        process.arguments = [scriptPath, dylibPath, "adapter_get_env"]
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = Pipe() // 吞掉 stderr，避免日志噪声
-        do {
-            try process.run()
-        } catch {
-            logger.error("辅助进程启动失败：\(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-        // 超时兜底：perl 挂起时终止本轮（readDataToEndOfFile 随即返回）
-        DispatchQueue.global().asyncAfter(deadline: .now() + Self.processTimeout) { [weak process] in
-            if process?.isRunning == true {
-                process?.terminate()
+    /// 合并当前出声进程到发现历史：新应用追加，名称变化刷新，最近播放时间限频刷新。
+    /// 仅在有实质变化时写 ConfigStore（避免每次轮询触发全局配置变更回调）。
+    private func updateDiscoveryHistory(playing: [AudioOutputProcess], now: Date) {
+        var history = configStore.config.audioAppHistory
+        var changed = false
+        for proc in playing {
+            if let idx = history.firstIndex(where: { $0.key == proc.key }) {
+                if history[idx].name != proc.name {
+                    history[idx].name = proc.name
+                    changed = true
+                }
+                if now.timeIntervalSince(history[idx].lastPlayedAt) >= Self.historyRefreshInterval {
+                    history[idx].lastPlayedAt = now
+                    changed = true
+                }
+            } else {
+                history.append(AudioAppRecord(key: proc.key, bundleID: proc.bundleID,
+                                              name: proc.name, lastPlayedAt: now))
+                changed = true
             }
         }
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty, text != "null" else { return nil }
-        guard let payload = text.data(using: .utf8),
-              let dict = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
-            logger.error("辅助进程输出解析失败")
-            return nil
-        }
-        return NowPlayingInfo(playing: dict["playing"] as? Bool ?? false,
-                              processIdentifier: dict["processIdentifier"] as? Int ?? 0)
+        guard changed else { return }
+        configStore.update { $0.audioAppHistory = history }
     }
 
-    /// 播放进程窗口所在显示器集合；找不到窗口时回退所有显示器
-    /// （后台播放无窗口、Safari 的 WebKit.GPU 子进程播放等场景无法定位媒体位置）
-    private func displayIDs(for processID: Int) -> Set<String> {
+    // MARK: - 查询与命中计算（后台队列执行）
+
+    /// 枚举正在出声的音频客户端进程，并计算命中的显示器集合
+    private func querySnapshot() -> PlaybackSnapshot {
+        let processes = Self.outputAudioProcesses()
+        guard !processes.isEmpty else {
+            logger.info("当前无进程正在输出声音")
+            return PlaybackSnapshot()
+        }
+        let ignored = Set(configStore.config.ignoredAudioAppKeys)
+        let visible = processes.filter { !ignored.contains($0.key) }
+        let displayIDs = displayIDs(for: visible)
+        if !visible.isEmpty {
+            logger.info("检测到 \(visible.count) 个进程正在输出声音（\(visible.map(\.name).joined(separator: "、"), privacy: .public)），命中 \(displayIDs.count) 个显示器")
+        } else if !processes.isEmpty {
+            logger.info("\(processes.count) 个出声进程全部在忽略名单中，不命中任何显示器")
+        }
+        return PlaybackSnapshot(displayIDs: displayIDs, processes: processes)
+    }
+
+    // MARK: - CoreAudio 进程枚举（公开 API，实现参考 sountop，MIT）
+
+    /// 单个音频客户端进程的身份快照
+    private struct AudioOutputProcess {
+        let pid: Int32
+        let bundleID: String?
+        let name: String
+
+        /// 稳定身份键：优先 bundle ID；无 bundle ID（命令行工具等）以进程名兜底
+        var key: String { bundleID ?? "proc:\(name)" }
+    }
+
+    private struct PlaybackSnapshot {
+        var displayIDs: Set<String> = []
+        var processes: [AudioOutputProcess] = []
+    }
+
+    /// 枚举所有音频客户端进程对象，返回「正在输出声音」的进程（含自己的 PID 过滤）
+    private static func outputAudioProcesses() -> [AudioOutputProcess] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyProcessObjectList,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        let systemObject = AudioObjectID(kAudioObjectSystemObject)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(systemObject, &address, 0, nil, &size) == noErr, size > 0 else {
+            return []
+        }
+        let count = Int(size) / MemoryLayout<AudioObjectID>.size
+        var processIDs = [AudioObjectID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(systemObject, &address, 0, nil, &size, &processIDs) == noErr else {
+            return []
+        }
+
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        var result: [AudioOutputProcess] = []
+        for objectID in processIDs {
+            guard let pid: Int32 = audioProcessProperty(objectID, kAudioProcessPropertyPID),
+                  pid > 0, pid != ownPID else { continue }
+            let isRunningOutput: UInt32 = audioProcessProperty(objectID, kAudioProcessPropertyIsRunningOutput) ?? 0
+            guard isRunningOutput != 0 else { continue }
+            let bundleID = audioProcessCFStringProperty(objectID, kAudioProcessPropertyBundleID)
+            // 音频驱动等系统基础设施（com.apple.audio.*）不是用户媒体应用，排除，避免误判为媒体播放
+            if let bundleID, bundleID.hasPrefix("com.apple.audio.") { continue }
+            result.append(AudioOutputProcess(pid: pid, bundleID: bundleID, name: displayName(pid: pid)))
+        }
+        return result
+    }
+
+    /// 读取进程对象的数值属性（PID / IsRunningOutput 等）
+    private static func audioProcessProperty<T>(_ objectID: AudioObjectID,
+                                                _ selector: AudioObjectPropertySelector) -> T? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var size = UInt32(MemoryLayout<T>.size)
+        let valuePtr = UnsafeMutablePointer<T>.allocate(capacity: 1)
+        defer { valuePtr.deallocate() }
+        let status = AudioObjectGetPropertyData(objectID, &address, 0, nil, &size, valuePtr)
+        guard status == noErr else { return nil }
+        return valuePtr.pointee
+    }
+
+    /// 读取进程对象的 CFString 属性（BundleID 等；AudioObjectGetPropertyData 返回 +1 引用）
+    private static func audioProcessCFStringProperty(_ objectID: AudioObjectID,
+                                                     _ selector: AudioObjectPropertySelector) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        var value: Unmanaged<CFString>?
+        let status = withUnsafeMutablePointer(to: &value) {
+            AudioObjectGetPropertyData(objectID, &address, 0, nil, &size, $0)
+        }
+        guard status == noErr, let unmanaged = value else { return nil }
+        let string = unmanaged.takeRetainedValue() as String
+        return string.isEmpty ? nil : string
+    }
+
+    /// 进程显示名：优先 NSRunningApplication 的本地化名称；
+    /// 无名称的辅助/实用进程（Chrome 音频服务等）按可执行路径定位所属 App 的
+    /// Bundle ID，再归到宿主应用（com.google.Chrome.helper → Google Chrome）。
+    private static func displayName(pid: Int32) -> String {
+        if let app = NSRunningApplication(processIdentifier: pid),
+           let name = app.localizedName, !name.isEmpty {
+            return name
+        }
+        if let path = executablePath(pid: pid),
+           let helperBundleID = appBundleID(executablePath: path),
+           let host = hostingApplication(bundleID: helperBundleID) {
+            return host
+        }
+        return "PID \(pid)"
+    }
+
+    /// 进程可执行路径（proc_pidpath，libproc 公开接口）
+    private static func executablePath(pid: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 2)
+        let len = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+        guard len > 0 else { return nil }
+        return String(cString: buffer)
+    }
+
+    /// 从可执行路径向上找到进程所属的第一个 App 包（.app / .xpc），读取其 bundle identifier
+    private static func appBundleID(executablePath: String) -> String? {
+        var dir = (executablePath as NSString).deletingLastPathComponent
+        while dir != "/" && dir != "." {
+            if dir.hasSuffix(".app") || dir.hasSuffix(".xpc") {
+                if let bundle = Bundle(path: dir), let id = bundle.bundleIdentifier, !id.isEmpty {
+                    return id
+                }
+            }
+            dir = (dir as NSString).deletingLastPathComponent
+        }
+        return nil
+    }
+
+    /// 宿主应用名：在运行中的应用里找 bundle ID 是给定 ID 前缀（以 "." 分界）的最短匹配，
+    /// 如 com.google.Chrome.helper（渲染进程）→ com.google.Chrome（Google Chrome）
+    private static func hostingApplication(bundleID: String) -> String? {
+        let candidates = NSWorkspace.shared.runningApplications
+            .compactMap { app -> (String, String)? in
+                guard let hostID = app.bundleIdentifier, hostID != bundleID,
+                      bundleID.hasPrefix(hostID + "."),
+                      let name = app.localizedName, !name.isEmpty else { return nil }
+                return (hostID, name)
+            }
+            .sorted { $0.0.count < $1.0.count } // 最短前缀即最直接的宿主
+        return candidates.first?.1
+    }
+
+    /// 命中显示器计算：出声进程的 layer 0 普通窗口与各 NSScreen.frame 判交；
+    /// 任一出声进程找不到窗口时回退所有显示器（保守，无法定位媒体位置）。
+    /// 全部被忽略时传入空数组，返回空集合（不命中任何显示器）。
+    private func displayIDs(for processes: [AudioOutputProcess]) -> Set<String> {
         let allDisplayIDs = Set(NSScreen.screens.map { String($0.fluxDisplayID) })
+        guard !processes.isEmpty else { return [] } // 全部被忽略：不命中任何显示器
         guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
             return allDisplayIDs
         }
         // layer 0 普通窗口（不透明、有实际尺寸）；壁纸窗口位于桌面图标层级（layer < 0）
         let pidWindows = windows.filter { win in
-            guard let owner = win[kCGWindowOwnerPID as String] as? Int, owner == processID else { return false }
             guard let layer = win[kCGWindowLayer as String] as? Int, layer == 0 else { return false }
             guard let alpha = win[kCGWindowAlpha as String] as? Double, alpha > 0 else { return false }
             guard let bounds = win[kCGWindowBounds as String] as? [String: CGFloat],
                   bounds["Width"] ?? 0 > 50, bounds["Height"] ?? 0 > 50 else { return false }
             return true
         }
-        guard !pidWindows.isEmpty else {
-            logger.info("播放进程 \(processID) 未找到窗口，回退所有显示器")
-            return allDisplayIDs
-        }
-        // 窗口与屏幕均为 CGWindowList 全局显示坐标，直接判交
         var result = Set<String>()
-        for screen in NSScreen.screens {
-            let frame = screen.frame
-            for win in pidWindows {
-                guard let bounds = win[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
-                let rect = CGRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0,
-                                  width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0)
-                if rect.intersects(frame) {
-                    result.insert(String(screen.fluxDisplayID))
-                    break
+        for proc in processes {
+            let procWindows = pidWindows.filter { win in
+                guard let owner = win[kCGWindowOwnerPID as String] as? Int, owner == proc.pid else { return false }
+                return true
+            }
+            guard !procWindows.isEmpty else {
+                logger.info("出声进程 \(proc.name, privacy: .public)（pid \(proc.pid)）未找到窗口，回退所有显示器")
+                return allDisplayIDs
+            }
+            // 窗口与屏幕均为 CGWindowList 全局显示坐标，直接判交
+            for screen in NSScreen.screens {
+                let frame = screen.frame
+                for win in procWindows {
+                    guard let bounds = win[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
+                    let rect = CGRect(x: bounds["X"] ?? 0, y: bounds["Y"] ?? 0,
+                                      width: bounds["Width"] ?? 0, height: bounds["Height"] ?? 0)
+                    if rect.intersects(frame) {
+                        result.insert(String(screen.fluxDisplayID))
+                        break
+                    }
                 }
             }
         }
         return result
     }
-}
-
-/// 辅助进程输出的「正在播放」信息（只取需要的字段）
-private struct NowPlayingInfo {
-    let playing: Bool
-    let processIdentifier: Int
 }

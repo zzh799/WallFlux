@@ -17,7 +17,7 @@ WallFlux 是一款 macOS 14+（Sonoma 及以上）菜单栏常驻应用，能为
 - **屏保级置顶播放** - 播放期间壁纸窗口置于最顶层（屏保层级），类似屏保效果；鼠标进入时立即让位降回桌面层级，不遮挡工作窗口
 - **热插拔支持** - 自动检测显示器连接 / 断开，重新接入时恢复之前配置
 - **智能暂停** - 任一启用条件命中（系统睡眠 / 显示器睡眠 / 低电量模式 / 电池供电 / 电量低于阈值（带 +5% 恢复滞后））即完全暂停壁纸播放与微跳；手动暂停与智能暂停相互独立、任一命中即暂停；另外全屏或最大化应用窗口所在屏不微跳（不影响闲置屏的屏保播放）
-- **媒体感知闲置** - 其他应用正在播放媒体时（Chrome / Safari 网页视频、直播、播放器、音乐等，音频视频一律算），播放所在显示器保持活跃、不进入闲置循环播放，壁纸不会覆盖你正在看的内容；已暂停的媒体不触发，播放停止后恢复闲置检测。该屏微跳照常进行，可在设置中关闭
+- **媒体感知闲置** - 其他应用正在输出声音时（Chrome / Safari 网页视频、直播、播放器、音乐等），播放所在显示器保持活跃、不进入闲置循环播放，壁纸不会覆盖你正在看的内容；声音停止后恢复闲置检测。通过系统 CoreAudio 公开 API 检测，无需任何权限；「声音应用」设置页可忽略指定应用（被忽略的应用即使正在出声也不会阻止闲置循环播放），该页同时展示本机播放过声音的应用及最近播放时间
 - **开机自启** - 默认关闭，首启弹窗询问是否登录时自动启动；菜单栏面板与设置中的开关以系统状态为准双向同步
 
 ## 系统要求
@@ -88,7 +88,7 @@ active（微跳） ── 闲置超时 ──▶ idle（循环播放壁纸，置
 
 WallFlux 采用 [GNU General Public License v3.0](LICENSE)。
 
-应用打包了 [kirtan-shah/nowplaying-cli](https://github.com/kirtan-shah/nowplaying-cli)（同为 GPL-3.0）的 `mediaremote-mini.pl` 与 `MediaRemoteMini.dylib`，用于通过 MediaRemote 读取系统「正在播放」信息——详见 [WallFlux/Resources/MediaRemote/README.md](WallFlux/Resources/MediaRemote/README.md)。
+媒体感知闲置通过系统公开的 CoreAudio 进程级 API（`kAudioHardwarePropertyProcessObjectList` 等）检测正在出声的 App，不含任何第三方组件与私有框架。
 
 ## 项目结构
 

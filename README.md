@@ -17,7 +17,7 @@ English | [简体中文](README_zh.md)
 - **Screen-saver-level playback** - while playing, the wallpaper window sits at the very top (screen saver layer); the moment the mouse enters, it drops to the desktop layer and yields the screen, never blocking your work
 - **Hot-plug aware** - connecting or disconnecting a display is detected automatically and its configuration is restored
 - **Smart pause** - with any enabled condition hit (system sleep, display sleep, Low Power Mode, battery power, low battery below a threshold with +5% hysteresis), wallpaper playback and micro-stepping pause entirely; manual pause and smart pause are independent and OR-ed together. Additionally, a display with a fullscreen / maximized app window skips micro-stepping (idle screensaver playback is unaffected)
-- **Media-aware idle** - when another app is playing media (web video / live streams in Chrome or Safari, video players, music - anything currently playing, audio or video), the display it plays on stays active instead of starting the looping wallpaper, so the wallpaper never covers what you are watching; paused media does not count, and idle detection resumes as soon as playback stops. The display keeps micro-stepping normally. Configurable in Settings
+- **Media-aware idle** - while another app is producing audio (web video / live streams in Chrome or Safari, video players, music - anything actually outputting sound), the display it plays on stays active instead of starting the looping wallpaper, so the wallpaper never covers what you are watching; idle detection resumes as soon as the sound stops. Detected via the public per-process CoreAudio HAL API - zero permissions, no private frameworks. The Settings tab shows every app that has played sound, and lets you ignore individual apps (an ignored app no longer blocks the looping wallpaper even while it is playing)
 - **Launch at login** - optional and off by default; a first-launch prompt asks whether to start WallFlux at login, and the toggle in the menu bar panel and Settings stays in sync with the system
 
 ## Requirements
@@ -88,7 +88,7 @@ See [docs/技术文档（Tech Design）.md](docs/技术文档（Tech Design）.m
 
 WallFlux is licensed under the [GNU General Public License v3.0](LICENSE).
 
-It bundles `mediaremote-mini.pl` and `MediaRemoteMini.dylib` from [kirtan-shah/nowplaying-cli](https://github.com/kirtan-shah/nowplaying-cli) (also GPL-3.0) to read the system's "Now Playing" information via MediaRemote - see [WallFlux/Resources/MediaRemote/README.md](WallFlux/Resources/MediaRemote/README.md) for details.
+Media-aware idle detection uses the system's public per-process CoreAudio HAL API (`kAudioHardwarePropertyProcessObjectList` / `kAudioProcessPropertyIsRunningOutput`, etc.), no third-party components or private frameworks are bundled.
 
 ## Project structure
 
