@@ -26,6 +26,14 @@ final class SettingsWindowController: NSWindowController {
             if !window.isVisible {
                 window.center()
             }
+            // E2E 调试：--open-settings 时固定停靠主显示屏，避免多显示器下窗口落在副屏/屏外
+            if CommandLine.arguments.contains("--open-settings"),
+               let main = NSScreen.screens.first {
+                let frame = main.visibleFrame
+                let origin = NSPoint(x: frame.midX - window.frame.width / 2,
+                                     y: frame.midY - window.frame.height / 2)
+                window.setFrameOrigin(origin)
+            }
             window.makeKeyAndOrderFront(nil)
         }
     }

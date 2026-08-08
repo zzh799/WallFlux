@@ -144,7 +144,10 @@ struct AppConfig: Codable, Equatable {
     /// 媒体保持活跃时忽略的应用（身份键集合）：被忽略的应用即使正在出声也不命中，
     /// 所在屏可正常进入闲置循环播放。发现历史照常记录。
     var ignoredAudioAppKeys: [String] = []
-    /// 本机播放过声音的应用（CoreAudio 进程级检测累积记录，设置「声音应用」页展示）
+    /// 用户手动取消了忽略的白名单键：这些键不再自动忽略
+    ///（白名单应用出声时自动追加进忽略名单）
+    var mediaWhitelistUserExcludedKeys: [String] = []
+    /// 本机播放过声音的应用（CoreAudio 进程级检测累积记录，设置「媒体应用」页展示）
     var audioAppHistory: [AudioAppRecord] = []
 }
 
@@ -173,7 +176,7 @@ extension AppConfig {
         // 存储键沿用旧名 "pauseOnFullscreen"，兼容旧版本持久化数据
         case pauseOnBattery, pauseOnLowBattery, lowBatteryThresholdPercent,
              microStepPauseOnFullscreen = "pauseOnFullscreen", mediaPlaybackKeepsActive,
-             ignoredAudioAppKeys, audioAppHistory
+             ignoredAudioAppKeys, mediaWhitelistUserExcludedKeys, audioAppHistory
     }
 
     init(from decoder: Decoder) throws {
@@ -197,10 +200,86 @@ extension AppConfig {
         lowBatteryThresholdPercent = try c.decodeIfPresent(Double.self, forKey: .lowBatteryThresholdPercent) ?? 40
         microStepPauseOnFullscreen = try c.decodeIfPresent(Bool.self, forKey: .microStepPauseOnFullscreen) ?? true
         mediaPlaybackKeepsActive = try c.decodeIfPresent(Bool.self, forKey: .mediaPlaybackKeepsActive) ?? true
-        // 声音应用忽略名单与发现历史（旧版本数据缺省时回退空）
+        // 媒体应用忽略名单、白名单用户排除键与发现历史（旧版本数据缺省时回退默认）
         ignoredAudioAppKeys = try c.decodeIfPresent([String].self, forKey: .ignoredAudioAppKeys) ?? []
+        mediaWhitelistUserExcludedKeys = try c.decodeIfPresent([String].self, forKey: .mediaWhitelistUserExcludedKeys) ?? []
         audioAppHistory = try c.decodeIfPresent([AudioAppRecord].self, forKey: .audioAppHistory) ?? []
     }
+}
+
+/// 常见音乐应用白名单（国内外预收集）
+///
+/// 白名单应用默认忽略：即使正在出声也不阻止所在显示器进入闲置循环播放。
+/// 纯音乐/音频应用没有需要保护的视觉内容（壁纸不会盖住任何画面），听歌时壁纸照常循环；
+/// 视频/直播类应用（浏览器、视频网站、直播平台）不在白名单内，播放时保持活跃以保护画面。
+/// 匹配键为 bundle ID；一个应用收录全部已知的历史 ID 变体（命中任一即忽略，
+/// 多余的 ID 不产生副作用）。白名单不在启动时预置：应用真实出声时自动加入
+/// 忽略名单（用户手动关闭过的键除外，见 `mediaWhitelistUserExcludedKeys`），
+/// 名单本身可在「媒体应用」页只读查看。
+struct MediaAppWhitelist {
+    /// 应用所属区域（国内外分组展示）
+    enum Region: String, CaseIterable, Identifiable {
+        case domestic = "国内"
+        case international = "国际"
+
+        var id: String { rawValue }
+    }
+
+    /// 白名单条目
+    struct Entry: Identifiable {
+        let name: String
+        let region: Region
+        /// 全部已知 bundle ID（含历史版本变体），命中任一即忽略
+        let bundleIDs: [String]
+
+        /// 列表行标识：首个 bundle ID
+        var id: String { bundleIDs[0] }
+    }
+
+    /// 国内常见音乐应用
+    static let domestic: [Entry] = [
+        Entry(name: "网易云音乐", region: .domestic,
+              bundleIDs: ["com.163.music", "com.netease.music", "com.netease.cloudmusic"]),
+        Entry(name: "QQ 音乐", region: .domestic,
+              bundleIDs: ["com.tencent.QQMusicMac", "com.tencent.QQMusic"]),
+        Entry(name: "酷狗音乐", region: .domestic,
+              bundleIDs: ["com.kugou", "com.kugou.mac", "com.kugou.kugou1002"]),
+        Entry(name: "酷我音乐", region: .domestic,
+              bundleIDs: ["com.kuwo.music", "com.kuwo", "com.dragongame.KuWoMusic"]),
+        Entry(name: "咪咕音乐", region: .domestic,
+              bundleIDs: ["com.migu.music"]),
+        Entry(name: "喜马拉雅", region: .domestic,
+              bundleIDs: ["com.ximalaya.ting", "com.ximalaya.mac"]),
+        Entry(name: "蜻蜓 FM", region: .domestic,
+              bundleIDs: ["com.qingting.ting"]),
+        Entry(name: "荔枝 FM", region: .domestic,
+              bundleIDs: ["com.lizhi.fm"]),
+    ]
+
+    /// 国际常见音乐应用
+    static let international: [Entry] = [
+        Entry(name: "Apple Music", region: .international, bundleIDs: ["com.apple.Music"]),
+        Entry(name: "iTunes", region: .international, bundleIDs: ["com.apple.iTunes"]),
+        Entry(name: "Spotify", region: .international, bundleIDs: ["com.spotify.client"]),
+        Entry(name: "YouTube Music", region: .international, bundleIDs: ["com.google.YouTubeMusic"]),
+        Entry(name: "TIDAL", region: .international, bundleIDs: ["com.tidal.desktop", "com.tidal"]),
+        Entry(name: "Deezer", region: .international, bundleIDs: ["com.deezer.app"]),
+        Entry(name: "Amazon Music", region: .international, bundleIDs: ["com.amazon.music"]),
+        Entry(name: "Pandora", region: .international, bundleIDs: ["com.pandora.desktop", "com.pandora.radio"]),
+        Entry(name: "SoundCloud", region: .international, bundleIDs: ["com.soundcloud.desktop"]),
+        Entry(name: "Qobuz", region: .international, bundleIDs: ["com.qobuz.mac"]),
+        Entry(name: "Audible", region: .international, bundleIDs: ["com.audible.mac"]),
+        Entry(name: "VOX", region: .international, bundleIDs: ["com.coppertino.Vox"]),
+        Entry(name: "Swinsian", region: .international, bundleIDs: ["com.swinsian"]),
+        Entry(name: "Audirvana", region: .international, bundleIDs: ["com.audirvana.audirvana"]),
+        Entry(name: "foobar2000", region: .international, bundleIDs: ["com.foobar2000mac.foobar2000"]),
+        Entry(name: "KKBOX", region: .international, bundleIDs: ["com.kkbox.mac"]),
+    ]
+
+    static var all: [Entry] { domestic + international }
+
+    /// 全部可匹配的身份键（bundle ID 集合，含历史变体）
+    static var allKeys: [String] { all.flatMap(\.bundleIDs) }
 }
 
 /// 单个显示器的配置，以显示器唯一 ID 标识（热插拔后按 ID 恢复）

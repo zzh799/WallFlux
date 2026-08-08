@@ -29,7 +29,7 @@
 		000000000000000000000210 /* GlobalSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000110 /* GlobalSettingsView.swift */; };
 		000000000000000000000211 /* DisplaySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000111 /* DisplaySettingsView.swift */; };
 		000000000000000000000220 /* ScreenSaverDownloadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011E /* ScreenSaverDownloadView.swift */; };
-		00000000000000000000022B /* AudioAppsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000021E /* AudioAppsView.swift */; };
+		00000000000000000000022B /* MediaAppsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000021E /* MediaAppsView.swift */; };
 		000000000000000000000213 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000113 /* Components.swift */; };
 		000000000000000000000214 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000116 /* AppKit.framework */; };
 		000000000000000000000215 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000117 /* SwiftUI.framework */; };
@@ -62,7 +62,7 @@
 		000000000000000000000111 /* DisplaySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplaySettingsView.swift; sourceTree = "<group>"; };
 		000000000000000000000113 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		00000000000000000000011E /* ScreenSaverDownloadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSaverDownloadView.swift; sourceTree = "<group>"; };
-		00000000000000000000021E /* AudioAppsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioAppsView.swift; sourceTree = "<group>"; };
+		00000000000000000000021E /* MediaAppsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaAppsView.swift; sourceTree = "<group>"; };
 		000000000000000000000114 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		000000000000000000000115 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		000000000000000000000116 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
@@ -166,7 +166,7 @@
 				000000000000000000000110 /* GlobalSettingsView.swift */,
 				000000000000000000000111 /* DisplaySettingsView.swift */,
 				00000000000000000000011E /* ScreenSaverDownloadView.swift */,
-				00000000000000000000021E /* AudioAppsView.swift */,
+				00000000000000000000021E /* MediaAppsView.swift */,
 				000000000000000000000113 /* Components.swift */,
 			);
 			path = UI;
@@ -276,7 +276,7 @@
 				000000000000000000000210 /* GlobalSettingsView.swift in Sources */,
 				000000000000000000000211 /* DisplaySettingsView.swift in Sources */,
 				000000000000000000000220 /* ScreenSaverDownloadView.swift in Sources */,
-				00000000000000000000022B /* AudioAppsView.swift in Sources */,
+				00000000000000000000022B /* MediaAppsView.swift in Sources */,
 				000000000000000000000213 /* Components.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

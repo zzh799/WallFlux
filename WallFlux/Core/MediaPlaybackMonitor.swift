@@ -21,13 +21,16 @@ import os
 ///   WebKit.GPU 子进程播放、后台播放无窗口）时回退命中所有显示器（保守，
 ///   避免壁纸覆盖媒体）。
 ///
-/// 忽略名单（设置「声音应用」页）：被用户忽略的应用即使正在出声也不命中，
+/// 忽略名单（设置「媒体应用」页）：被用户忽略的应用即使正在出声也不命中，
 /// 所在屏可正常进入闲置循环播放；开启忽略后立即重新评估放行。
+/// 国内外常见音乐应用预置白名单（`MediaAppWhitelist`）：不预先占用忽略名单，
+/// 应用真实出声时自动加入忽略名单（用户手动关闭过的键不再自动加入），
+/// 名单可在「媒体应用」页只读查看。
 ///
 /// 命中作用（配置 `mediaPlaybackKeepsActive` 开启时）：命中屏不进入闲置循环播放；
 /// 媒体开始时若该屏正处于闲置播放则立即退出，壁纸让位。不影响微跳
 /// （与全屏暂停微跳是两个独立行为）。发现历史与「正在播放」列表始终维护
-/// （供设置「声音应用」页展示），与开关无关。
+/// （供设置「媒体应用」页展示），与开关无关。
 final class MediaPlaybackMonitor: ObservableObject {
     private let logger = Logger(subsystem: "com.wallflux.WallFlux", category: "MediaPlaybackMonitor")
     private let configStore: ConfigStore
@@ -123,9 +126,31 @@ final class MediaPlaybackMonitor: ObservableObject {
             AudioAppRecord(key: $0.key, bundleID: $0.bundleID, name: $0.name, lastPlayedAt: now)
         }
         updateDiscoveryHistory(playing: snapshot.processes, now: now)
+        applyAutoIgnore(playing: snapshot.processes)
     }
 
-    // MARK: - 发现历史（设置「声音应用」页）
+    // MARK: - 白名单自动忽略
+
+    /// 白名单应用真实出声后自动加入忽略名单：命中任一白名单键即忽略，
+    /// 该应用所在屏可正常进入闲置循环播放（听歌时壁纸照常循环）。
+    /// 仅自动追加「不在忽略名单且用户未手动关闭过」的键：
+    /// 用户曾在列表里关闭过的键（`mediaWhitelistUserExcludedKeys`）不再自动加入，
+    /// 尊重用户选择；已忽略的键没有变化时不会触发写入。
+    private func applyAutoIgnore(playing: [AudioOutputProcess]) {
+        let excluded = Set(configStore.config.mediaWhitelistUserExcludedKeys)
+        let whitelistKeys = Set(MediaAppWhitelist.allKeys)
+        let toAdd = playing.map(\.key).filter { key in
+            whitelistKeys.contains(key) && !excluded.contains(key)
+        }
+        guard !toAdd.isEmpty else { return }
+        configStore.update { config in
+            for key in toAdd where !config.ignoredAudioAppKeys.contains(key) {
+                config.ignoredAudioAppKeys.append(key)
+            }
+        }
+    }
+
+    // MARK: - 发现历史（设置「媒体应用」页）
 
     /// 合并当前出声进程到发现历史：新应用追加，名称变化刷新，最近播放时间限频刷新。
     /// 仅在有实质变化时写 ConfigStore（避免每次轮询触发全局配置变更回调）。

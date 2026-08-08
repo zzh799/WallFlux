@@ -20,7 +20,7 @@ struct GlobalSettingsView: View {
                     .foregroundStyle(.secondary)
 
                 Toggle("其他应用播放媒体时保持活跃", isOn: boolBinding(keyPath: \.mediaPlaybackKeepsActive))
-                Text("系统正在输出声音的应用（播放音乐、视频、直播等，通过系统 CoreAudio 公开 API 检测）所在显示器不进入闲置循环播放，避免壁纸覆盖播放内容；声音停止后恢复。不影响微跳。可在「声音应用」页忽略指定应用。")
+                Text("系统正在输出声音的应用（播放音乐、视频、直播等，通过系统 CoreAudio 公开 API 检测）所在显示器不进入闲置循环播放，避免壁纸覆盖播放内容；声音停止后恢复。不影响微跳。常见音乐应用（网易云、Spotify、QQ 音乐等）预收集默认忽略名单：真实播放过声音后自动忽略（听歌时壁纸照常循环），可在「媒体应用」页查看名单并逐项管理。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
