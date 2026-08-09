@@ -271,7 +271,7 @@ final class SmartPauseMonitor: ObservableObject {
         guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
-        // layer 0 普通窗口（不透明、有实际尺寸）；壁纸窗口位于桌面图标层级（layer < 0），不会命中
+        // layer 0 普通窗口（不透明、有实际尺寸）；壁纸窗口闲置置顶播放时 layer 1000、其余时间隐藏，均不会命中
         let candidates = windows.filter { win in
             guard let layer = win[kCGWindowLayer as String] as? Int, layer == 0 else { return false }
             guard let alpha = win[kCGWindowAlpha as String] as? Double, alpha > 0 else { return false }

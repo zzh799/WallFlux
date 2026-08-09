@@ -10,11 +10,11 @@ English | [简体中文](README_zh.md)
 
 - **Per-display configuration** - each monitor gets its own wallpaper, remembered by hardware ID across unplug / replug; or switch to "All displays" to apply one wallpaper everywhere (newly connected displays inherit it automatically)
 - **Smart idle detection** - global mouse + keyboard monitoring; a display without input for N minutes (default 1, configurable) automatically starts playing its dynamic wallpaper
-- **Micro-step burn-in prevention** - on active displays the wallpaper is paused and advances Z frames every Y seconds, visually imperceptible but effective against OLED burn-in
+- **Micro-step burn-in prevention** - active displays keep no wallpaper window; the current frame is set directly as the system wallpaper and advances Z frames every Y seconds by rewriting it, visually imperceptible but effective against OLED burn-in
 - **Four wallpaper sources** - macOS system dynamic wallpapers, system screen saver videos (Aerial aerial footage, referencing the files the system already downloaded), local video files (mp4 / mov / webm), local image sequences (a folder of images, sorted by filename)
 - **Graceful exit** - configurable transition when you come back: instant stop or fade-out (0.5 s default); a mouse passing briefly over a playing display never interrupts the wallpaper - it goes back to top-layer playback as soon as the mouse leaves or stops
 - **Instant preview** - the "Play wallpaper now" button in Settings plays the current wallpaper full-screen without waiting for the idle timeout; any mouse move or key press exits it, and switching the wallpaper while a display is playing resumes playback automatically
-- **Screen-saver-level playback** - while playing, the wallpaper window sits at the very top (screen saver layer); the moment the mouse enters, it drops to the desktop layer and yields the screen, never blocking your work
+- **Screen-saver-level playback** - while playing, the wallpaper window sits at the very top (screen saver layer); the moment the mouse enters, it hides itself and yields the screen, never blocking your work
 - **Hot-plug aware** - connecting or disconnecting a display is detected automatically and its configuration is restored
 - **Smart pause** - with any enabled condition hit (system sleep, display sleep, Low Power Mode, battery power, low battery below a threshold with +5% hysteresis), wallpaper playback and micro-stepping pause entirely; manual pause and smart pause are independent and OR-ed together. Additionally, a display with a fullscreen / maximized app window skips micro-stepping (idle screensaver playback is unaffected)
 - **Media-aware idle** - while another app is producing audio (web video / live streams in Chrome or Safari, video players, music - anything actually outputting sound), the display it plays on stays active instead of starting the looping wallpaper, so the wallpaper never covers what you are watching; idle detection resumes as soon as the sound stops. Detected via the public per-process CoreAudio HAL API - zero permissions, no private frameworks. The Settings tab ships a read-only whitelist of well-known music apps (domestic and international): once such an app actually produces sound it is ignored automatically, so the wallpaper keeps looping while you listen to music, and every app discovered on your machine gets an ignore toggle (an ignored app no longer blocks the looping wallpaper even while it is playing)
@@ -72,9 +72,9 @@ active (micro-step) ── idle timeout ──▶ idle (looping wallpaper, on to
 ```
 
 - **Idle detection** uses a global `CGEventTap`; the display under the mouse is always considered active, and keyboard input activates the display of the focused window.
-- **Brief-entry grace** (5 s default, adjustable in Settings): when the mouse enters a playing display the wallpaper immediately drops to the desktop layer and pauses, yielding the screen; if the mouse leaves or stops within the grace period, playback resumes on top. Clicks, scrolling and keyboard input exit immediately.
-- **Micro-step mode** pauses the wallpaper at its last frame and steps forward Z frames every Y seconds, so the panel never stays perfectly still (burn-in prevention) while looking static.
-- The wallpaper window runs at the screen saver level (`kCGScreenSaverWindowLevel`) while playing and drops to the desktop icon level (`kCGDesktopIconWindowLevel`) when paused, joins all Spaces, and ignores mouse events.
+- **Brief-entry grace** (5 s default, adjustable in Settings): when the mouse enters a playing display the wallpaper immediately yields (pauses and hides its window, revealing the system wallpaper); if the mouse leaves or stops within the grace period, playback resumes on top. Clicks, scrolling and keyboard input exit immediately.
+- **Micro-step mode** (active displays) creates no wallpaper windows: the current frame is set directly as the **system wallpaper**, and every Y seconds the wallpaper advances Z frames by rewriting the system wallpaper itself. The image looks static but never stays on the same pixels for long (burn-in prevention). Quitting WallFlux restores your original system wallpaper.
+- The wallpaper window is only visible on top while playing (screen saver level `kCGScreenSaverWindowLevel`) during idle screensaver cycles; at all other times no window exists. It joins all Spaces and ignores mouse events.
 
 See [docs/技术文档（Tech Design）.md](docs/技术文档（Tech Design）.md) for the full architecture, data flow, and state machine details.
 
@@ -103,4 +103,4 @@ WallFlux/
 ## Troubleshooting
 
 - **Idle detection stops working** - the system may terminate a `CGEventTap` (a known macOS behavior). WallFlux auto-reconnects; if it keeps failing, re-grant the Accessibility permission in System Settings.
-- **Wallpaper not showing** - make sure the wallpaper window level still works on your macOS version; on future macOS releases the desktop window level may change behavior and a fallback level is used.
+- **Wallpaper not showing** - the active-state wallpaper is set through the system wallpaper API (`setDesktopImageURL`) and does not depend on window levels; if the desktop is blank, check that no other app overrides Desktop & Screen Saver settings, and relaunch WallFlux.

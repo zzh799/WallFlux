@@ -79,6 +79,9 @@ final class ImageSequenceRenderer {
         prefetch(next: wrapped + 1)
     }
 
+    /// 当前帧图像（供系统壁纸输出等用途；图片序列已按屏幕像素解码，无需二次处理）
+    var currentSnapshotImage: CGImage? { image(at: currentFrame) }
+
     /// 后台预解码下一帧（NSCache 线程安全）
     private func prefetch(next index: Int) {
         let wrapped = ((index % frameCount) + frameCount) % frameCount

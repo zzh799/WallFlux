@@ -75,6 +75,8 @@ final class ScreenContext: ObservableObject, Identifiable {
     /// 启动：创建壁纸窗口、恢复上次帧位置、进入活跃状态
     func start() {
         ensureDisplayConfigSaved()
+        // 先记录该屏原始系统壁纸（活跃态将覆盖系统壁纸，退出时需要恢复）
+        engine?.ensureOriginalWallpaper(for: screen)
         reloadWallpaperIfNeeded(force: true)
         restoreFramePosition()
         enterActive()
@@ -89,10 +91,14 @@ final class ScreenContext: ObservableObject, Identifiable {
         engine?.removeWindow(displayID: displayID)
     }
 
-    /// 屏幕参数变化（分辨率/刷新率）时更新屏幕引用与窗口位置
+    /// 屏幕参数变化（分辨率/刷新率）时更新屏幕引用，活跃态重绘系统壁纸
     func updateScreen(_ newScreen: NSScreen) {
         screen = newScreen
         engine?.updateWindowFrame(displayID: displayID, screen: newScreen)
+        if state == .active {
+            // 像素尺寸可能已变化，按新分辨率重画壁纸
+            engine?.paintDesktopWallpaper(displayID: displayID, screen: newScreen)
+        }
     }
 
     /// 检测到用户输入（键盘 / 强鼠标交互：点击、拖拽、滚动）：立即响应，不走宽限
@@ -109,7 +115,7 @@ final class ScreenContext: ObservableObject, Identifiable {
         }
     }
 
-    /// 纯鼠标移动（弱输入）：闲置时启动/维持短暂进入宽限，宽限期内壁纸降层让位并暂停；
+    /// 纯鼠标移动（弱输入）：闲置时启动/维持短暂进入宽限，宽限期内壁纸暂停并隐藏窗口让位；
     /// 鼠标持续移动满宽限期才退出，移出或停止移动则恢复顶层播放
     func mouseMoved() {
         guard !isPaused else { return }
@@ -240,11 +246,12 @@ final class ScreenContext: ObservableObject, Identifiable {
         logger.info("显示器 \(self.displayID) 已暂停（\(self.pauseDescription, privacy: .public)）")
     }
 
-    /// 恢复：回到暂停前的状态——active 恢复微跳；idle 从当前帧继续循环播放
+    /// 恢复：回到暂停前的状态——active 恢复微跳（并同步系统壁纸到当前帧）；idle 从当前帧继续循环播放
     private func applyResume() {
         switch state {
         case .active:
             engine?.pause(displayID: displayID)
+            engine?.paintDesktopWallpaper(displayID: displayID, screen: screen)
             startMicroStepTimer()
             resetIdleTimer()
         case .idle:
@@ -287,7 +294,7 @@ final class ScreenContext: ObservableObject, Identifiable {
         }
     }
 
-    /// 配置变更后刷新壁纸（素材变化才重建窗口）
+    /// 配置变更后刷新壁纸（素材变化才重建窗口）；活跃态重画系统壁纸
     func reloadWallpaperIfNeeded(force: Bool = false) {
         ensureDisplayConfigSaved()
         refreshDisplayConfigFromStore()
@@ -298,6 +305,10 @@ final class ScreenContext: ObservableObject, Identifiable {
         if force {
             engine?.seek(displayID: displayID, toFrame: displayConfig.lastFramePosition)
         }
+        // 活跃态窗口不可见：素材重建后立即把新素材首帧输出为系统壁纸
+        if state == .active {
+            engine?.paintDesktopWallpaper(displayID: displayID, screen: screen)
+        }
     }
 
     // MARK: - 状态机
@@ -305,6 +316,8 @@ final class ScreenContext: ObservableObject, Identifiable {
     private func enterActive() {
         state = .active
         engine?.pause(displayID: displayID)
+        // 活跃态：当前帧直接输出为系统壁纸（窗口不可见）
+        engine?.paintDesktopWallpaper(displayID: displayID, screen: screen)
         guard !isPaused else { return } // 暂停中不启动计时器，恢复时由 applyResume 启动
         startMicroStepTimer()
         resetIdleTimer()
@@ -366,7 +379,7 @@ final class ScreenContext: ObservableObject, Identifiable {
 
     // MARK: - 短暂进入宽限
 
-    /// 鼠标进入闲置显示器：壁纸暂停并降到底层让位（用户可立即看到屏幕内容），
+    /// 鼠标进入闲置显示器：壁纸暂停并隐藏窗口让位（用户可立即看到屏幕内容），
     /// 同时启动固定时长宽限计时器与停止看门狗；移出/停止移动则恢复顶层播放，
     /// 持续移动满宽限期才判定为真实使用并退出
     private func startGrace() {
@@ -378,7 +391,7 @@ final class ScreenContext: ObservableObject, Identifiable {
         }
         cancelGrace()
         logger.info("显示器 \(self.displayID) 鼠标进入，启动 \(Int(graceSeconds)) 秒宽限期，壁纸让位")
-        // 暂停并降到底层（pause 内部将窗口降回桌面图标层级）
+        // 暂停并隐藏窗口让位（活跃态桌面由系统壁纸呈现，不创建任何壁纸窗口）
         engine?.pause(displayID: displayID)
         let grace = Timer(timeInterval: graceSeconds, repeats: false) { [weak self] _ in
             self?.graceTimerFired()
@@ -436,6 +449,8 @@ final class ScreenContext: ObservableObject, Identifiable {
         guard state == .active, !isPaused, !microStepPausedByFullscreen else { return }
         let frames = max(1, configStore.config.microStepFrameCount)
         engine?.stepForward(displayID: displayID, frames: frames)
+        // 微跳 = 推进帧并直接修改系统壁纸
+        engine?.paintDesktopWallpaper(displayID: displayID, screen: screen)
     }
 
     private func resetIdleTimer() {

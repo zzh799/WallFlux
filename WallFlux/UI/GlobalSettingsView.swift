@@ -38,7 +38,7 @@ struct GlobalSettingsView: View {
                             set: { newValue in configStore.update { $0.microStepFrameCount = newValue } }
                            ),
                            range: 1...10, unit: "帧")
-                Text("活跃显示器保留壁纸窗口但不播放，每隔微跳间隔向前跳微跳帧数帧，几乎不可察觉地防止烧屏。")
+                Text("活跃显示器不显示壁纸窗口，改为直接使用系统壁纸；每隔微跳间隔向前跳微跳帧数帧并直接修改系统壁纸，几乎不可察觉地防止烧屏。退出 WallFlux 时恢复原系统壁纸。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -46,7 +46,7 @@ struct GlobalSettingsView: View {
                     get: { configStore.config.microStepPauseOnFullscreen },
                     set: { newValue in configStore.update { $0.microStepPauseOnFullscreen = newValue } }
                 ))
-                Text("活跃显示器上存在全屏或最大化的应用窗口时不微跳，避免持续在该窗口之上跳帧；退出全屏后自动恢复。闲置播放不受影响。")
+                Text("活跃显示器上存在全屏或最大化的应用窗口时不修改壁纸，避免在窗口之下频繁刷新桌面；退出全屏后自动恢复。闲置播放不受影响。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -58,7 +58,7 @@ struct GlobalSettingsView: View {
                             set: { newValue in configStore.update { $0.briefEntryGraceSeconds = newValue } }
                           ),
                           range: 0...60, unit: "秒", step: 1)
-                Text("鼠标短暂进入播放中的显示器时，壁纸立即让位（暂停并降至窗口之下）；宽限期内鼠标移出或停止移动则恢复置顶播放，持续移动满宽限期才退出。设为 0 秒表示鼠标进入立即退出。")
+                Text("鼠标短暂进入播放中的显示器时，壁纸立即让位（暂停并隐藏壁纸窗口，露出桌面）；宽限期内鼠标移出或停止移动则恢复置顶播放，持续移动满宽限期才退出。设为 0 秒表示鼠标进入立即退出。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
