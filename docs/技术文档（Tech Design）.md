@@ -202,7 +202,7 @@ DisplayConfig {
 - 忽略名单：设置「媒体应用」页（第三个 tab）逐应用开关；国内外常见音乐应用预置只读白名单（`MediaAppWhitelist`，纯音乐/音频应用，不含视频/直播类），不在主列表展示、不预先占用忽略名单——应用真实播放过声音后自动写入忽略名单（`mediaPlaybackMonitor.applyAutoIgnore`；用户手动关闭过的键写入 `mediaWhitelistUserExcludedKeys`，不再自动重新加入）；被忽略应用即使正在出声也不命中（命中计算直接排除），切换后立即重新评估放行；忽略名单与发现历史（bundle ID → 名称 + 最近播放时间）持久化在 ConfigStore（UserDefaults），重启不丢；发现历史始终累积，与开关无关，白名单在「媒体应用」页右下角弹窗只读查看
 - 轮询与推送：
   - 2 秒定时器（与 SmartPauseMonitor 同节奏），枚举在后台队列执行（单轮仅数十个属性查询，开销可忽略）；上一轮在途时跳过本轮
-  - 命中计算：`CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 取出声进程 layer 0 普通窗口，与各 `NSScreen.frame`（同为 CGWindowList 全局显示坐标）判交得命中屏集合；任一出声进程找不到窗口（后台播放、Safari 的 WebKit 子进程播放、Chrome 音频服务进程等）时回退命中所有显示器（保守）
+  - 命中计算：`CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 取出声进程 layer 0 普通窗口，换算为 AppKit 坐标（`appKitRectFromCGWindowList`，CGWindowList 原点在主屏左上角）后与各 `NSScreen.frame` 判交得命中屏集合；Chromium/Electron 类应用（抖音、Chrome 等）音频由无窗口的 utility 子进程输出（如 `com.bytedance.douyin.desktop.helper`），进程自身找不到窗口时按 Bundle 归属（bundle ID 前缀最短匹配，与显示名解析同源）解析宿主应用窗口再判交；两者都定位不到（后台播放无窗口等）才回退命中所有显示器（保守，避免壁纸覆盖媒体）
   - 推送 `applyMediaPlaybackDisplayIDs(_:)`；配置开关 `mediaPlaybackKeepsActive` 关闭时不命中、立即清空命中（发现历史与「正在播放」列表照常维护）
 - 状态机联动（见 §4）：
   - `active`：媒体播放中不启用闲置计时（媒体结束后 `setMediaPlaybackPresent(false)` 重新启动）；媒体开始时若该屏正闲置播放则立即 `beginExit` 让位
@@ -362,5 +362,5 @@ forcePlayNow（立即播放）为用户显式操作，强制覆盖媒体守卫�
 | 锁屏窗口误判全屏应用 | 锁屏时误判有全屏应用（活跃屏暂停微跳） | 全屏检测仅匹配 layer 0 窗口，锁屏窗口（layer 2004）不命中 |
 | 低电量阈值边界抖动 | 电量在阈值附近波动导致频繁暂停/恢复 | 恢复线 = 阈值 + 5% 防抖滞后，阈值与恢复线之间保持现状 |
 | 声音意外/静音流误判 | `IsRunningOutput` 只证明输出 IO 在跑，静音流、系统提示音也算「正在出声」 | 对「防闲置」足够；被误判的应用可在「媒体应用」页单独忽略，或关闭总开关回归原状 |
-| 出声进程找不到窗口 | 无法定位媒体位置（后台播放、浏览器渲染子进程等） | 回退命中所有显示器（保守）；后续可考虑按 Bundle 归属解析宿主窗口 |
+| 出声进程找不到窗口 | 无法定位媒体位置（后台播放、浏览器渲染子进程等） | 先按进程窗口定位，无窗口时按 Bundle 归属解析宿主应用窗口（抖音/Chrome 等音频 utility 子进程归主应用窗口）；都定位不到才回退所有显示器（保守） |
 | 系统音频基础设施进程干扰 | 音频驱动（bundle ID 前缀 `com.apple.audio.`）可能长期显示在出声列表 | 检测时直接排除该类进程；启动时清理历史中已排除的残留记录 |
