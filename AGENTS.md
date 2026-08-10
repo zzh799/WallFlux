@@ -4,15 +4,15 @@
 
 ## 项目概况
 
-- **产品**：WallFlux —— macOS 14+（Sonoma）菜单栏常驻应用，为每个显示器独立配置动态壁纸；闲置显示器自动循环播放壁纸保护屏幕，活跃显示器进入"微跳"模式防烧屏。
+- **产品**：WallFlux —— macOS 14+（Sonoma）菜单栏常驻应用，为每个显示器独立配置动态壁纸；闲置显示器自动循环播放壁纸保护屏幕，活跃显示器以系统壁纸呈现当前帧并进入"微跳"模式防烧屏。
 - **仓库**：公开于 GitHub `zzh799/WallFlux`（https://github.com/zzh799/WallFlux），main 分支直接对接 GitHub Actions。
-- **当前状态**：功能已完整实现（WallFlux/ 源码 + WallFlux.xcodeproj），CI（构建验证 + 自动发布）已就绪。写代码前先读文档。
+- **当前状态**：功能已完整实现（WallFlux/ 源码 + WallFlux.xcodeproj），CI（构建验证 + 自动发布）已就绪，最新发布 v1.8.0。写代码前先读文档。
 
 ## 文档即规范（先读后写）
 
 | 文档 | 内容 | 何时查阅 |
 |------|------|----------|
-| [docs/需求文档（PRD）.md](docs/需求文档（PRD）.md) | 功能需求 FR-01~FR-13、非功能需求 NFR-01~05 | 实现功能前核对需求编号，确保覆盖 |
+| [docs/需求文档（PRD）.md](docs/需求文档（PRD）.md) | 功能需求 FR-01~FR-16、非功能需求 NFR-01~05 | 实现功能前核对需求编号，确保覆盖 |
 | [docs/技术文档（Tech Design）.md](docs/技术文档（Tech Design）.md) | 架构分层、模块职责、状态机、数据流、关键 API、风险 | 新增/修改任何模块时严格对齐 |
 | [docs/设计规范.md](docs/设计规范.md) | 色彩/字体/间距 token、组件规范、动效、无障碍 | 所有 UI 实现（菜单栏面板、设置窗口） |
 
@@ -35,20 +35,21 @@
 ```
 MenuBarApp / SettingsWindow (SwiftUI)
         ↓
-CoreManager ── ScreenManager / IdleDetector / ConfigStore / AssetStore
+CoreManager ── ScreenManager / IdleDetector / ConfigStore / AssetStore / MediaPlaybackMonitor
         ↓
-WallpaperEngine（壁纸窗口创建、视频/图片序列渲染、播放控制）
+WallpaperEngine（壁纸窗口创建、视频/图片序列渲染、播放控制、活跃态系统壁纸输出）
 ```
 
 - 每个显示器一个 `ScreenContext`，用 `NSScreen.displayID` 唯一标识，热插拔时按 ID 恢复配置。
-- 显示器状态机：`active`（微跳）→ `idle`（循环播放）→ `exiting`（退出动画）→ `active`。
+- 显示器状态机：`active`（系统壁纸呈现当前帧 + 微跳）→ `idle`（循环播放）→ `exiting`（退出动画）→ `active`；鼠标短暂进入有 `grace` 宽限子状态，媒体播放（FR-16）不改变状态机形状只加守卫边。
 - 配置结构 `AppConfig` / `DisplayConfig`、状态机与数据流见技术文档 §3.4 / §4 / §5。
 
 ## 约定
 
 - 注释、提交信息、UI 文案使用**中文**；代码标识符用英文。
-- 模块/类型命名对齐技术文档：`CoreManager`、`ScreenManager`、`IdleDetector`、`ConfigStore`、`AssetStore`、`WallpaperEngine`、`ScreenContext`。
-- 播放控制接口：`play()` / `pause()` / `stepForward(frames:)` / `fadeOut(duration:completion:)` / `currentFrame`。
+- 模块/类型命名对齐技术文档：`CoreManager`、`ScreenManager`、`IdleDetector`、`ConfigStore`、`AssetStore`、`WallpaperEngine`、`ScreenContext`、`MediaPlaybackMonitor`、`SmartPauseMonitor`。
+- 设置窗口为 TabView 五页：`GeneralSettingsView`（全局/智能暂停/启动）、`ScreenSaverSettingsView`（屏保）、`WallpaperSettingsView`（壁纸/微跳）、`DisplaySettingsView`、`MediaAppsView`；表单行统一用 `Components.swift` 的 `SettingsRow.*` + 行尾 `HelpButton`（说明文案不进表单）。
+- 播放控制接口：`play()` / `pause()` / `stepForward(frames:)` / `fadeOut(duration:completion:)` / `currentFrame`；活跃态系统壁纸输出：`paintDesktopWallpaper(displayID:screen:)` / `recordOriginalWallpapers` / `ensureOriginalWallpaper(for:)` / `restoreOriginalWallpapers()`。
 - 素材存放 `~/Library/Application Support/WallFlux/Assets/`，元数据以 JSON 存同目录。
 - UI 遵守设计规范的 token（`spacing.*`、语义色），优先系统语义 API（`.title2`、`Color.accentColor`、`.monospacedDigit()` 等）。
 
@@ -59,9 +60,12 @@ WallpaperEngine（壁纸窗口创建、视频/图片序列渲染、播放控制�
 - **多 Spaces**：壁纸窗口必须设 `collectionBehavior = [.canJoinAllSpaces, .stationary]`。
 - 壁纸窗口需 `ignoresMouseEvents = true`，背景色黑色兜底（视频未加载时）。
 - 壁纸窗口默认隐藏，仅闲置置顶播放时显示（`kCGScreenSaverWindowLevel`）；活跃态壁纸直接设为系统壁纸；系统壁纸 API 同一 URL 不刷新，每帧须写新文件名。
+- **活跃态窗口隐藏 → 播放器永不 readyToPlay**：活跃态帧号推进（`steppedFrame` 自记帧号）与取帧（`AVAssetImageGenerator` 直接基于素材）不依赖播放器状态；播放器就绪后把暂存帧同步给它（`pendingFrame`），保证闲置续播位置一致。
 - 键盘输入通过 AX 查询聚焦窗口定位所在屏幕（`IdleDetector.focusedDisplayID()`），查询失败（系统繁忙 `kAXErrorCannotComplete` 等）时逐级回退：鼠标位置 → 前台应用窗口（`frontmostWindowDisplayID()`，CGWindowList）→ 最后才回退所有屏幕活跃，避免无输入屏幕的闲置计时器被反复重置。
+- **媒体播放监测（`MediaPlaybackMonitor`）对无窗口的音频子进程（Chromium/Electron 类，如抖音 Helper）**：按 Bundle 归属解析宿主应用窗口定位显示器；解析失败会回退命中所有显示器（`displayIDs(for:)` 兜底）。复现/调试用 `tools/audio_probe.swift`。
 - `os.Logger` 的 `info` 级别日志需 `log show/stream --info --debug` 才能看到（默认被过滤）。
 - swift 脚本（swift-frontend 解释执行）的 `os.Logger` 不生效，测试脚本用 `NSLog` 或编译后运行。
+- 闲置超时有 1 分钟下限：调试/回归测试用环境变量 `WALLFLUX_IDLE_TIMEOUT_SECONDS` 直接以「秒」覆盖（见 `ScreenContext.startIdleTimer`），生产环境不设置。
 
 ## CI 与发布
 
@@ -89,8 +93,12 @@ log show --last 10m --info --debug --predicate 'subsystem == "com.wallflux.WallF
 # 构建（Release，与 CI 一致）
 xcodebuild -project WallFlux.xcodeproj -scheme WallFlux -configuration Release -derivedDataPath build build
 
-# 调试配置注入（写入 defaults 域，二进制 plist 包 JSON Data）
-# 见 tools/write_test_config.swift 思路：PropertyListSerialization 包装后 defaults import
+# 媒体播放监测诊断（CoreAudio 出声进程 / IOKit 断言 / 窗口数三组对照）
+swift tools/audio_probe.swift              # 单次快照
+swift tools/audio_probe.swift --watch 3    # 每 3 秒输出一次
+
+# 闲置超时调试（绕过 1 分钟下限，以「秒」覆盖；回归测试用）
+WALLFLUX_IDLE_TIMEOUT_SECONDS=5 ./build/Build/Products/Debug/WallFlux.app/Contents/MacOS/WallFlux
 ```
 
 - 无自动化测试框架；E2E 验证方式：启动后 `screencapture` 对比帧差异、`log show` 查状态转换。
