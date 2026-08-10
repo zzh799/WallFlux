@@ -443,7 +443,15 @@ final class ScreenContext: ObservableObject, Identifiable {
         guard !isPaused else { return } // 暂停中不启动闲置计时（恢复时由 applyResume 启动）
         guard inputMonitoringEnabled else { return } // 无输入监控（未授权）时不启动闲置计时
         guard !mediaPlaybackBlocksIdle else { return } // 媒体播放中不启动闲置计时（媒体结束由 setMediaPlaybackPresent 恢复）
-        let seconds = max(1, configStore.config.idleTimeoutMinutes) * 60
+        // 调试/回归钩子：环境变量 WALLFLUX_IDLE_TIMEOUT_SECONDS 直接以「秒」覆盖闲置超时
+        // （配置值有 1 分钟下限，无法快速复现/回归测试）。生产环境未设置时无任何影响。
+        let seconds: TimeInterval
+        if let raw = ProcessInfo.processInfo.environment["WALLFLUX_IDLE_TIMEOUT_SECONDS"],
+           let v = Double(raw) {
+            seconds = max(1, v)
+        } else {
+            seconds = max(1, configStore.config.idleTimeoutMinutes) * 60
+        }
         let timer = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
             self?.idleTimerFired()
         }

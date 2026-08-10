@@ -21,9 +21,9 @@
 │                   MenuBarApp                  │
 │  ┌──────────┐  ┌──────────────────────────┐  │
 │  │ MenuBar  │  │   SettingsWindow (SwiftUI) │  │
-│  │ Controller│  │   - 全局设置              │  │
-│  │ (SwiftUI) │  │   - 显示器壁纸设置        │  │
-│  │          │  │   - 显示器壁纸设置（含素材管理分栏）   │  │
+│  │ Controller│  │   - 全局 / 屏保 / 壁纸设置  │  │
+│  │ (SwiftUI) │  │   - 显示器壁纸设置（含素材管理分栏）   │  │
+│  │          │  │   - 媒体应用               │  │
 │  └────┬─────┘  └───────────┬──────────────┘  │
 │       │                    │                  │
 │  ┌────┴────────────────────┴──────────────┐   │
@@ -190,7 +190,7 @@ DisplayConfig {
   - 枚举 `kAudioHardwarePropertyProcessObjectList`（系统对象）得全部音频客户端进程对象；逐个查 `kAudioProcessPropertyIsRunningOutput`（是否正在出声）、`kAudioProcessPropertyPID` / `kAudioProcessPropertyBundleID`（进程身份）
   - 100% 公开 API、零授权、macOS 14 即可用，不再依赖私有 MediaRemote 与第三方 dylib；局限：`IsRunningOutput` 只证明输出 IO 在跑，不保证非静音（静音流也算出声），对「防闲置」足够
   - 进程筛选：排除音频驱动等系统基础设施（bundle ID 前缀 `com.apple.audio.`）；显示名优先 `NSRunningApplication.localizedName`，渲染/音频子进程（如 Chrome 的 `com.google.Chrome.helper`）按可执行路径（`proc_pidpath`）定位所属 App 包后归到宿主应用名
-- 忽略名单：设置「媒体应用」页（第三个 tab）逐应用开关；国内外常见音乐应用预置只读白名单（`MediaAppWhitelist`，纯音乐/音频应用，不含视频/直播类），不在主列表展示、不预先占用忽略名单——应用真实播放过声音后自动写入忽略名单（`mediaPlaybackMonitor.applyAutoIgnore`；用户手动关闭过的键写入 `mediaWhitelistUserExcludedKeys`，不再自动重新加入）；被忽略应用即使正在出声也不命中（命中计算直接排除），切换后立即重新评估放行；忽略名单与发现历史（bundle ID → 名称 + 最近播放时间）持久化在 ConfigStore（UserDefaults），重启不丢；发现历史始终累积，与开关无关，白名单在「媒体应用」页右下角弹窗只读查看
+- 忽略名单：设置「媒体应用」页（最后一个 tab）逐应用开关；国内外常见音乐应用预置只读白名单（`MediaAppWhitelist`，纯音乐/音频应用，不含视频/直播类），不在主列表展示、不预先占用忽略名单——应用真实播放过声音后自动写入忽略名单（`mediaPlaybackMonitor.applyAutoIgnore`；用户手动关闭过的键写入 `mediaWhitelistUserExcludedKeys`，不再自动重新加入）；被忽略应用即使正在出声也不命中（命中计算直接排除），切换后立即重新评估放行；忽略名单与发现历史（bundle ID → 名称 + 最近播放时间）持久化在 ConfigStore（UserDefaults），重启不丢；发现历史始终累积，与开关无关，白名单在「媒体应用」页右下角弹窗只读查看
 - 轮询与推送：
   - 2 秒定时器（与 SmartPauseMonitor 同节奏），枚举在后台队列执行（单轮仅数十个属性查询，开销可忽略）；上一轮在途时跳过本轮
   - 命中计算：`CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 取出声进程 layer 0 普通窗口，与各 `NSScreen.frame`（同为 CGWindowList 全局显示坐标）判交得命中屏集合；任一出声进程找不到窗口（后台播放、Safari 的 WebKit 子进程播放、Chrome 音频服务进程等）时回退命中所有显示器（保守）

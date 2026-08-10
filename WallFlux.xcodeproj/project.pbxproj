@@ -26,7 +26,9 @@
 		00000000000000000000020D /* MenuBarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010D /* MenuBarPanelView.swift */; };
 		00000000000000000000020E /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010E /* SettingsWindowController.swift */; };
 		00000000000000000000020F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010F /* SettingsView.swift */; };
-		000000000000000000000210 /* GlobalSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000110 /* GlobalSettingsView.swift */; };
+		000000000000000000000231 /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000221 /* GeneralSettingsView.swift */; };
+		000000000000000000000232 /* ScreenSaverSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000222 /* ScreenSaverSettingsView.swift */; };
+		000000000000000000000233 /* WallpaperSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000223 /* WallpaperSettingsView.swift */; };
 		000000000000000000000211 /* DisplaySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000111 /* DisplaySettingsView.swift */; };
 		000000000000000000000220 /* ScreenSaverDownloadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011E /* ScreenSaverDownloadView.swift */; };
 		00000000000000000000022B /* MediaAppsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000021E /* MediaAppsView.swift */; };
@@ -58,7 +60,9 @@
 		00000000000000000000010D /* MenuBarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPanelView.swift; sourceTree = "<group>"; };
 		00000000000000000000010E /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		00000000000000000000010F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		000000000000000000000110 /* GlobalSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSettingsView.swift; sourceTree = "<group>"; };
+		000000000000000000000221 /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
+		000000000000000000000222 /* ScreenSaverSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSaverSettingsView.swift; sourceTree = "<group>"; };
+		000000000000000000000223 /* WallpaperSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WallpaperSettingsView.swift; sourceTree = "<group>"; };
 		000000000000000000000111 /* DisplaySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplaySettingsView.swift; sourceTree = "<group>"; };
 		000000000000000000000113 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		00000000000000000000011E /* ScreenSaverDownloadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSaverDownloadView.swift; sourceTree = "<group>"; };
@@ -163,7 +167,9 @@
 				00000000000000000000010D /* MenuBarPanelView.swift */,
 				00000000000000000000010E /* SettingsWindowController.swift */,
 				00000000000000000000010F /* SettingsView.swift */,
-				000000000000000000000110 /* GlobalSettingsView.swift */,
+				000000000000000000000221 /* GeneralSettingsView.swift */,
+				000000000000000000000222 /* ScreenSaverSettingsView.swift */,
+				000000000000000000000223 /* WallpaperSettingsView.swift */,
 				000000000000000000000111 /* DisplaySettingsView.swift */,
 				00000000000000000000011E /* ScreenSaverDownloadView.swift */,
 				00000000000000000000021E /* MediaAppsView.swift */,
@@ -273,7 +279,9 @@
 				00000000000000000000020D /* MenuBarPanelView.swift in Sources */,
 				00000000000000000000020E /* SettingsWindowController.swift in Sources */,
 				00000000000000000000020F /* SettingsView.swift in Sources */,
-				000000000000000000000210 /* GlobalSettingsView.swift in Sources */,
+				000000000000000000000231 /* GeneralSettingsView.swift in Sources */,
+				000000000000000000000232 /* ScreenSaverSettingsView.swift in Sources */,
+				000000000000000000000233 /* WallpaperSettingsView.swift in Sources */,
 				000000000000000000000211 /* DisplaySettingsView.swift in Sources */,
 				000000000000000000000220 /* ScreenSaverDownloadView.swift in Sources */,
 				00000000000000000000022B /* MediaAppsView.swift in Sources */,

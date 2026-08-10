@@ -3,6 +3,120 @@ import AVFoundation
 import ImageIO
 import SwiftUI
 
+/// 问号帮助按钮（设置表单行用）：悬停显示原生 tooltip，点击弹出说明气泡。
+/// 帮助文本同时写入 accessibilityHint，屏幕阅读器可读。
+struct HelpButton: View {
+    let text: String
+    @State private var showingPopover = false
+
+    var body: some View {
+        Button {
+            showingPopover.toggle()
+        } label: {
+            Image(systemName: "questionmark.circle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(text)
+        .accessibilityLabel("帮助")
+        .accessibilityHint(text)
+        .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(12)
+                .frame(width: 300, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// 设置页表单行统一样式（「全局 / 屏保 / 壁纸」三页共用）：
+/// 标签 100pt + 控件 + 行尾「?」帮助按钮，说明文案不占表单行高。
+enum SettingsRow {
+    /// 滑块行：标签 + 滑块(200pt) + 数值(56pt) + 帮助按钮
+    static func slider(title: String,
+                       value: Binding<Double>,
+                       range: ClosedRange<Double>,
+                       unit: String,
+                       step: Double,
+                       help: String) -> some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                Slider(value: value, in: range, step: step)
+                    .frame(width: 200)
+                    .accessibilityLabel(title)
+                    .accessibilityValue("\(Int(value.wrappedValue)) \(unit)")
+                Text("\(Int(value.wrappedValue)) \(unit)")
+                    .font(.body)
+                    .monospacedDigit()
+                    .frame(width: 56, alignment: .trailing)
+                HelpButton(text: help)
+            }
+        } label: {
+            Text(title)
+                .frame(width: 100, alignment: .leading)
+        }
+    }
+
+    /// 步进行：标签 + Stepper + 帮助按钮
+    static func stepper(title: String,
+                        value: Binding<Int>,
+                        range: ClosedRange<Int>,
+                        unit: String,
+                        help: String) -> some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                Stepper(value: value, in: range) {
+                    Text("\(value.wrappedValue) \(unit)")
+                        .monospacedDigit()
+                        .frame(width: 56, alignment: .trailing)
+                }
+                .accessibilityLabel(title)
+                .accessibilityValue("\(value.wrappedValue) \(unit)")
+                HelpButton(text: help)
+            }
+        } label: {
+            Text(title)
+                .frame(width: 100, alignment: .leading)
+        }
+    }
+
+    /// 开关行：标签左置、开关右置，帮助按钮在行尾
+    static func toggle(title: String,
+                       isOn: Binding<Bool>,
+                       help: String) -> some View {
+        HStack(spacing: 8) {
+            Toggle(title, isOn: isOn)
+            HelpButton(text: help)
+        }
+    }
+
+    /// 选择行：标签 + 菜单 Picker + 帮助按钮
+    static func menuPicker<SelectionValue: Hashable, Content: View>(
+        title: String,
+        selection: Binding<SelectionValue>,
+        help: String,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                Picker(title, selection: selection, content: content)
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(maxWidth: 200, alignment: .leading)
+                HelpButton(text: help)
+            }
+        } label: {
+            Text(title)
+                .frame(width: 100, alignment: .leading)
+        }
+    }
+}
+
 /// 开机自启开关（设计 §1）：SMAppService 为真相源，onAppear 时读取真实状态刷新，不做定时轮询。
 /// 写穿：ON → register()；OFF → unregister()。
 /// 审批状态（.requiresApproval）：开关亮（开）+ 警示文案 + 「打开系统设置」按钮。
