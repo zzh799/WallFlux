@@ -37,6 +37,9 @@ final class ScreenManager: ObservableObject {
     }
 
     func start() {
+        // 记录各屏原始系统壁纸（活跃态将覆盖系统壁纸，退出时恢复）
+        engine.recordOriginalWallpapers()
+
         // 热插拔 / 分辨率变化监听
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -64,6 +67,8 @@ final class ScreenManager: ObservableObject {
         observers.removeAll()
         contexts.forEach { $0.shutdown() }
         contexts.removeAll()
+        // 恢复各屏启动前的系统壁纸（进程即将退出，之后不再有人覆盖）
+        engine.restoreOriginalWallpapers()
     }
 
     /// 鼠标输入：标记鼠标所在显示器活跃（强输入：点击/拖拽/滚动/键盘）

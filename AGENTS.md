@@ -22,7 +22,8 @@
 
 - 语言：Swift 5.9+，Xcode 15+
 - UI：SwiftUI（菜单栏面板 + 设置窗口）
-- 底层窗口：AppKit（`NSWindow`、`NSScreen`、`kCGDesktopWindowLevel`）
+- 底层窗口：AppKit（`NSWindow`、`NSScreen`、`kCGScreenSaverWindowLevel`）
+- 系统壁纸：`NSWorkspace.setDesktopImageURL`（活跃态桌面呈现，不创建窗口）
 - 视频播放：AVFoundation（`AVPlayer`、`AVPlayerLayer`、`AVPlayerLooper`）
 - 图片序列：`NSImage` / `CALayer` + 定时器
 - 输入监控：`CGEventTap`（**需要辅助功能权限**）
@@ -54,10 +55,10 @@ WallpaperEngine（壁纸窗口创建、视频/图片序列渲染、播放控制�
 ## 已知坑（务必遵守）
 
 - **CGEventTap 会被系统终止**：必须实现 tap 重连机制；首次使用需引导用户授予辅助功能权限。
-- **`kCGDesktopWindowLevel` 未来版本可能失效**：预留降级方案（改用更低 CGWindowLevel）。
+- **`kCGScreenSaverWindowLevel`（闲置置顶播放）未来版本可能失效**：预留降级方案（改用相邻 CGWindowLevel）；活跃态不依赖窗口层级（系统壁纸 API）。
 - **多 Spaces**：壁纸窗口必须设 `collectionBehavior = [.canJoinAllSpaces, .stationary]`。
 - 壁纸窗口需 `ignoresMouseEvents = true`，背景色黑色兜底（视频未加载时）。
-- 壁纸窗口使用 `kCGDesktopIconWindowLevel`（桌面图标层），普通窗口之下。
+- 壁纸窗口默认隐藏，仅闲置置顶播放时显示（`kCGScreenSaverWindowLevel`）；活跃态壁纸直接设为系统壁纸；系统壁纸 API 同一 URL 不刷新，每帧须写新文件名。
 - 键盘输入通过 AX 查询聚焦窗口定位所在屏幕（`IdleDetector.focusedDisplayID()`），查询失败（系统繁忙 `kAXErrorCannotComplete` 等）时逐级回退：鼠标位置 → 前台应用窗口（`frontmostWindowDisplayID()`，CGWindowList）→ 最后才回退所有屏幕活跃，避免无输入屏幕的闲置计时器被反复重置。
 - `os.Logger` 的 `info` 级别日志需 `log show/stream --info --debug` 才能看到（默认被过滤）。
 - swift 脚本（swift-frontend 解释执行）的 `os.Logger` 不生效，测试脚本用 `NSLog` 或编译后运行。

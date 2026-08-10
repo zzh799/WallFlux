@@ -14,7 +14,7 @@ struct WallpaperSettingsView: View {
                                     set: { newValue in configStore.update { $0.microStepIntervalSeconds = newValue } }
                                    ),
                                    range: 1...300, unit: "秒", step: 1,
-                                   help: "活跃显示器保留壁纸窗口但不播放，每隔微跳间隔向前跳微跳帧数帧，几乎不可察觉地防止烧屏。")
+                                   help: "活跃显示器不显示壁纸窗口，改为直接使用系统壁纸；每隔微跳间隔向前跳微跳帧数帧并直接修改系统壁纸，几乎不可察觉地防止烧屏。退出 WallFlux 时恢复原系统壁纸。")
 
                 SettingsRow.stepper(title: "微跳帧数",
                                     value: Binding(
@@ -26,7 +26,7 @@ struct WallpaperSettingsView: View {
 
                 SettingsRow.toggle(title: "全屏应用中不微跳",
                                    isOn: boolBinding(keyPath: \.microStepPauseOnFullscreen),
-                                   help: "活跃显示器上存在全屏或最大化的应用窗口时不微跳，避免持续在该窗口之上跳帧；退出全屏后自动恢复。闲置播放不受影响。")
+                                   help: "活跃显示器上存在全屏或最大化的应用窗口时不修改壁纸，避免在窗口之下频繁刷新桌面；退出全屏后自动恢复。闲置播放不受影响。")
             }
         }
         .formStyle(.grouped)

@@ -38,10 +38,11 @@
 │       │                                       │
 │  ┌────┴───────────────────────────────────┐   │
 │  │          WallpaperEngine                │   │
-│  │  - 窗口创建/销毁 (AppKit NSWindow)      │   │
+│  │  - 壁纸窗口（仅闲置置顶播放时可见）     │   │
 │  │  - 视频渲染 (AVPlayer)                 │   │
 │  │  - 图片序列渲染                        │   │
 │  │  - 播放控制 (播放/暂停/跳帧)            │   │
+│  │  - 系统壁纸输出 (活跃态桌面呈现)        │   │
 │  └────────────────────────────────────────┘   │
 └──────────────────────────────────────────────┘
 ```
@@ -77,20 +78,28 @@
 
 #### 3.3 WallpaperEngine — 壁纸引擎
 
-- 职责：管理桌面层级覆盖窗口，负责视频和图片序列的渲染与播放控制
+- 职责：壁纸窗口（仅闲置置顶播放时可见）的创建/销毁与播放控制，以及活跃态系统壁纸输出
 - 窗口创建（AppKit）：
-  - 为每个目标显示器创建 `NSWindow`
-  - **动态层级**：播放时 `level = kCGScreenSaverWindowLevel`（屏保层级，置顶覆盖普通窗口与菜单栏）；暂停/微跳时降回 `kCGDesktopIconWindowLevel`（桌面图标层，普通窗口之下）
+  - 为每个目标显示器创建 `NSWindow`，**创建后保持隐藏**（活跃态桌面由系统壁纸呈现，不显示任何壁纸窗口）
+  - 层级：仅闲置播放时置顶 `level = kCGScreenSaverWindowLevel`（屏保层级，覆盖普通窗口与菜单栏）；`pause()` 即隐藏窗口（`orderOut`），不再使用桌面图标层级
   - 设置 `collectionBehavior = [.canJoinAllSpaces, .stationary]`（跟随 Spaces 切换）
   - 窗口无边框、全屏覆盖目标 NSScreen 的 frame
   - 设置 `ignoresMouseEvents = true`（不拦截鼠标事件）
   - 背景色为黑色（视频未加载时）
 
+- 活跃态系统壁纸输出（feature/system-wallpaper 核心）：
+  - `paintDesktopWallpaper(displayID:screen:)`：取当前帧 → cover 裁剪到屏幕像素尺寸 → JPEG 写入
+    `~/Library/Application Support/WallFlux/Desktop/`（文件名带自增序号）→ `NSWorkspace.setDesktopImageURL` 直接设置系统壁纸
+  - **系统按 URL 判断壁纸变更，重复 URL 不刷新**：必须每帧写新文件名，写完后删除上一张；启动时清理 24 小时前的残留文件
+  - 渲染序号去重：并发触发的绘制只有最新一份生效，旧帧丢弃（`desktopTokens`）
+  - 退出时 `restoreOriginalWallpapers()` 恢复各屏启动前记录的原始系统壁纸（`recordOriginalWallpapers` / 热插拔补记 `ensureOriginalWallpaper`）
+  - 缩放选项：`scaleProportionallyUpOrDown + allowClipping`（与播放画面 resizeAspectFill 构图一致）
+
 - 视频渲染：
-  - 使用 `AVPlayer` + `AVPlayerLayer` 嵌入窗口的 contentView
-  - 支持循环播放（`AVPlayerLooper` 或监听播放结束事件）
-  - 支持精确暂停/跳帧（`seek(to:)` 方法）
-  - 支持淡入淡出（窗口 alpha 动画）
+  - 使用 `AVPlayer` + `AVPlayerLayer` 嵌入窗口的 contentView（仅闲置置顶播放）
+  - **隐藏窗口不接渲染管线，播放器 status 永不 readyToPlay**：活跃态的帧号推进（`steppedFrame` 自记帧号）与壁纸取帧（`AVAssetImageGenerator` 直接基于素材）完全不依赖播放器状态；播放器就绪后把暂存帧同步给它（`pendingFrame`），保证闲置续播位置一致
+  - 帧率/总帧数异步从素材读取（`nominalFrameRate` + `duration`），用于帧号换算与循环回绕
+  - 支持循环播放（`AVPlayerLooper`）、精确暂停/跳帧、淡入淡出（窗口 alpha 动画）
 
 - 图片序列渲染：
   - 按文件名排序加载图片序列
@@ -98,10 +107,10 @@
   - 支持暂停/跳帧
 
 - 播放控制接口：
-  - `play()`：开始循环播放
-  - `pause()`：暂停在当前帧
-  - `stepForward(frames:)`：向前跳指定帧数并暂停
-  - `fadeOut(duration:completion:)`：渐隐并销毁窗口
+  - `play()`：开始循环播放（窗口置顶可见）
+  - `pause()`：暂停并隐藏窗口（活跃态改由系统壁纸呈现）
+  - `stepForward(frames:)`：向前跳指定帧数并暂停（活跃态自记帧号推进）
+  - `fadeOut(duration:completion:)`：渐隐后由调用方隐藏窗口
   - `currentFrame: Int`：当前帧序号（视频需换算帧号）
 
 #### 3.4 ConfigStore — 配置管理
@@ -193,7 +202,7 @@ DisplayConfig {
 - 忽略名单：设置「媒体应用」页（最后一个 tab）逐应用开关；国内外常见音乐应用预置只读白名单（`MediaAppWhitelist`，纯音乐/音频应用，不含视频/直播类），不在主列表展示、不预先占用忽略名单——应用真实播放过声音后自动写入忽略名单（`mediaPlaybackMonitor.applyAutoIgnore`；用户手动关闭过的键写入 `mediaWhitelistUserExcludedKeys`，不再自动重新加入）；被忽略应用即使正在出声也不命中（命中计算直接排除），切换后立即重新评估放行；忽略名单与发现历史（bundle ID → 名称 + 最近播放时间）持久化在 ConfigStore（UserDefaults），重启不丢；发现历史始终累积，与开关无关，白名单在「媒体应用」页右下角弹窗只读查看
 - 轮询与推送：
   - 2 秒定时器（与 SmartPauseMonitor 同节奏），枚举在后台队列执行（单轮仅数十个属性查询，开销可忽略）；上一轮在途时跳过本轮
-  - 命中计算：`CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 取出声进程 layer 0 普通窗口，与各 `NSScreen.frame`（同为 CGWindowList 全局显示坐标）判交得命中屏集合；任一出声进程找不到窗口（后台播放、Safari 的 WebKit 子进程播放、Chrome 音频服务进程等）时回退命中所有显示器（保守）
+  - 命中计算：`CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 取出声进程 layer 0 普通窗口，换算为 AppKit 坐标（`appKitRectFromCGWindowList`，CGWindowList 原点在主屏左上角）后与各 `NSScreen.frame` 判交得命中屏集合；Chromium/Electron 类应用（抖音、Chrome 等）音频由无窗口的 utility 子进程输出（如 `com.bytedance.douyin.desktop.helper`），进程自身找不到窗口时按 Bundle 归属（bundle ID 前缀最短匹配，与显示名解析同源）解析宿主应用窗口再判交；两者都定位不到（后台播放无窗口等）才回退命中所有显示器（保守，避免壁纸覆盖媒体）
   - 推送 `applyMediaPlaybackDisplayIDs(_:)`；配置开关 `mediaPlaybackKeepsActive` 关闭时不命中、立即清空命中（发现历史与「正在播放」列表照常维护）
 - 状态机联动（见 §4）：
   - `active`：媒体播放中不启用闲置计时（媒体结束后 `setMediaPlaybackPresent(false)` 重新启动）；媒体开始时若该屏正闲置播放则立即 `beginExit` 让位
@@ -221,7 +230,7 @@ DisplayConfig {
               │ 检测到用户输入（鼠标移至该屏/键盘操作）
               ▼
         ┌──────────────┐
-        │ 宽限（子状态）│ ← 鼠标进入：壁纸降层让位并暂停
+        │ 宽限（子状态）│ ← 鼠标进入：壁纸暂停并隐藏窗口让位（露出桌面）
         │ (grace)       │     ├─ 宽限期内鼠标移出/停止移动 → 恢复置顶播放（回 idle）
         │               │     ├─ 点击/滚动/拖拽/键盘 → 立即退出
         │               │     └─ 持续移动满宽限期 → 恢复顶层后退出
@@ -235,7 +244,7 @@ DisplayConfig {
               │ 退出完成，记录当前帧位置
               ▼
         ┌──────────┐
-        │  active   │ ← 恢复微跳模式，从记录帧开始（窗口降回桌面层级）
+        │  active   │ ← 恢复微跳模式，从记录帧开始（当前帧输出为系统壁纸，窗口隐藏）
         └──────────┘
 ```
 
@@ -248,7 +257,7 @@ DisplayConfig {
 IdleDetector (CGEventTap)
     │
     ├── 鼠标纯移动（弱输入）→ 计算所在 NSScreen → 记录移入/移出，刷新宽限状态
-    │       ├── 闲置显示器：启动宽限 → 壁纸降层让位 + 暂停
+    │       ├── 闲置显示器：启动宽限 → 壁纸暂停并隐藏窗口让位（露出系统壁纸）
     │       │       ├── 移出/停止移动 → 恢复置顶播放
     │       │       └── 持续移动满宽限期 → 恢复顶层 → 渐隐退出
     │       └── 活跃显示器：重置闲置计时器
@@ -267,7 +276,8 @@ ScreenManager
     │       └── 记录 currentFrame
     │
     └── 某屏进入 active（微跳）
-            └── WallpaperEngine.pause() + 定时 stepForward()（窗口降回桌面层级）
+            └── WallpaperEngine.pause()（窗口隐藏）+ 当前帧输出为系统壁纸
+                └── 微跳定时器：stepForward() + 重新输出系统壁纸（直接修改桌面壁纸）
 
 智能暂停数据流：
 
@@ -285,8 +295,8 @@ applySmartPause(globalReasons:) + applyFullscreenDisplayIDs(displayIDs)
 ScreenContext.setFullscreenPresent → 命中屏仅在活跃时暂停微跳（闲置播放不受影响）
 ScreenContext.setSmartPauseReasons → isPaused = 手动 ∨ 智能
     │
-    ├── 暂停：停 idle/微跳计时器、engine.pause()（窗口降回桌面层级）
-    └── 恢复：active 恢复微跳；idle 从当前帧继续循环播放
+    ├── 暂停：停 idle/微跳计时器、engine.pause()（窗口隐藏）
+    └── 恢复：active 恢复微跳（重画系统壁纸）；idle 从当前帧继续循环播放
     │
     ▼
 UI（面板「已暂停：[原因]」+ 设置「当前已暂停」）← activeReasons
@@ -321,7 +331,8 @@ forcePlayNow（立即播放）为用户显式操作，强制覆盖媒体守卫�
 | 用途 | API / 框架 |
 |------|-----------|
 | 显示器枚举与监听 | `NSScreen`, `didChangeScreenParametersNotification` |
-| 桌面层级窗口 | `NSWindow`, `CGWindowLevelKey.desktopWindow` |
+| 壁纸窗口（仅闲置置顶） | `NSWindow`, `CGWindowLevelKey.screenSaverWindow` |
+| 系统壁纸输出 / 恢复 | `NSWorkspace.setDesktopImageURL`, `desktopImageURL(for:)` |
 | 全局输入事件 | `CGEvent.tapCreate`, 辅助功能权限 |
 | 视频播放 | `AVFoundation` (AVPlayer, AVPlayerLayer, AVPlayerLooper) |
 | 图片序列 | `NSImage` + 定时器 |
@@ -343,12 +354,13 @@ forcePlayNow（立即播放）为用户显式操作，强制覆盖媒体守卫�
 
 | 风险 | 影响 | 缓解措施 |
 |------|------|----------|
-| 壁纸窗口层级（`kCGScreenSaverWindowLevel` / `kCGDesktopIconWindowLevel`）在 macOS 未来版本中行为变化 | 置顶/桌面层级可能不生效 | 预留降级方案（使用相邻的 CGWindowLevel 值），层级切换集中在 `WallpaperWindow.applyLevel` 便于调整 |
+| 壁纸窗口层级（`kCGScreenSaverWindowLevel`）在 macOS 未来版本中行为变化 | 闲置置顶播放可能不生效 | 活跃态已不依赖任何窗口层级（系统壁纸 API 呈现）；层级切换集中在 `WallpaperWindow` 便于调整 |
+| 系统壁纸 API（`NSWorkspace.setDesktopImageURL`）行为变化或设置失败 | 活跃态桌面不呈现壁纸内容 | 每帧独立文件路径规避「同 URL 不刷新」问题；取帧失败兜底第 0 帧；退出恢复原壁纸（进程退出前短暂等待消息送达）；壁纸残留文件 24 小时清扫 |
 | CGEventTap 被系统终止 | 闲置检测失效 | 实现 tap 超时重连机制 |
 | Mac App Store 沙盒限制 | 无法通过商店分发 | 仅通过 DMG / Homebrew 分发 |
 | 显示器睡眠通知不可靠（部分系统 `screensDidSleep/Wake` 与 CGDisplay 重构回调不触发） | 显示器睡眠条件检测失效 | 轮询 `CGDisplayIsAsleep`（与窗口轮询共用 2 秒定时器），重构回调仅作事件驱动加速 |
 | 锁屏窗口误判全屏应用 | 锁屏时误判有全屏应用（活跃屏暂停微跳） | 全屏检测仅匹配 layer 0 窗口，锁屏窗口（layer 2004）不命中 |
 | 低电量阈值边界抖动 | 电量在阈值附近波动导致频繁暂停/恢复 | 恢复线 = 阈值 + 5% 防抖滞后，阈值与恢复线之间保持现状 |
 | 声音意外/静音流误判 | `IsRunningOutput` 只证明输出 IO 在跑，静音流、系统提示音也算「正在出声」 | 对「防闲置」足够；被误判的应用可在「媒体应用」页单独忽略，或关闭总开关回归原状 |
-| 出声进程找不到窗口 | 无法定位媒体位置（后台播放、浏览器渲染子进程等） | 回退命中所有显示器（保守）；后续可考虑按 Bundle 归属解析宿主窗口 |
+| 出声进程找不到窗口 | 无法定位媒体位置（后台播放、浏览器渲染子进程等） | 先按进程窗口定位，无窗口时按 Bundle 归属解析宿主应用窗口（抖音/Chrome 等音频 utility 子进程归主应用窗口）；都定位不到才回退所有显示器（保守） |
 | 系统音频基础设施进程干扰 | 音频驱动（bundle ID 前缀 `com.apple.audio.`）可能长期显示在出声列表 | 检测时直接排除该类进程；启动时清理历史中已排除的残留记录 |

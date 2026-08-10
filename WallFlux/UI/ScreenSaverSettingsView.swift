@@ -28,7 +28,7 @@ struct ScreenSaverSettingsView: View {
                                     set: { newValue in configStore.update { $0.briefEntryGraceSeconds = newValue } }
                                    ),
                                    range: 0...60, unit: "秒", step: 1,
-                                   help: "鼠标短暂进入播放中的显示器时，壁纸立即让位（暂停并降至窗口之下）；宽限期内鼠标移出或停止移动则恢复置顶播放，持续移动满宽限期才退出。设为 0 秒表示鼠标进入立即退出。")
+                                   help: "鼠标短暂进入播放中的显示器时，壁纸立即让位（暂停并隐藏壁纸窗口，露出桌面）；宽限期内鼠标移出或停止移动则恢复置顶播放，持续移动满宽限期才退出。设为 0 秒表示鼠标进入立即退出。")
 
                 SettingsRow.menuPicker(title: "退出方式",
                                        selection: Binding(
