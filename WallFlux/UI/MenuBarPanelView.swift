@@ -135,6 +135,23 @@ struct MenuBarPanelView: View {
             .padding(.vertical, 8)
 
             Divider()
+            HStack(spacing: 12) {
+                Button {
+                    playScreenSaverNow()
+                } label: {
+                    Label("立即播放屏保", systemImage: "play.circle.fill")
+                }
+                .controlSize(.small)
+                .disabled(!canPlayScreenSaverNow)
+                .help(playScreenSaverHint)
+                .accessibilityHint(playScreenSaverHint)
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+
+            Divider()
             // 底部操作行：设置与退出固定在面板底部（见设计规范 §5.1）
             HStack(spacing: 12) {
                 Button("设置…") {
@@ -152,6 +169,31 @@ struct MenuBarPanelView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+        }
+    }
+
+    // MARK: - 立即播放屏保
+
+    /// 「立即播放屏保」可用条件：需已授予辅助功能权限（无输入检测时禁止置顶播放，
+    /// 防止进入后无法退出）；全局手动暂停中不响应（与设置页「立即播放动态壁纸」一致）
+    private var canPlayScreenSaverNow: Bool {
+        idleDetector.isTrusted && !core.isPaused
+    }
+
+    private var playScreenSaverHint: String {
+        if !idleDetector.isTrusted {
+            return "需先在系统设置中授予辅助功能权限"
+        }
+        if core.isPaused {
+            return "已暂停播放，恢复后可立即播放"
+        }
+        return "立即全屏播放壁纸，移动鼠标或按键后退出"
+    }
+
+    /// 所有显示器立即进入闲置循环播放（等效闲置超时触发，与设置页「立即播放动态壁纸」同路径）
+    private func playScreenSaverNow() {
+        for context in screenManager.contexts {
+            context.forcePlayNow()
         }
     }
 
