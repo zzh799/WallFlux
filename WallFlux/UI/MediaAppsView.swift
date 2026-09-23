@@ -4,6 +4,7 @@ import SwiftUI
 /// 「媒体应用」设置页：出声应用的忽略管理
 ///
 /// 主列表：本机播放过声音的应用（发现历史 + 正在出声的置顶），逐项「忽略」开关；
+/// 正在出声的应用在播放状态后标注所在显示器（多屏全命中显示「所有显示器」）；
 /// 被忽略的应用即使正在出声，也不阻止所在显示器进入闲置循环播放
 /// （命中计算排除忽略名单，切换后立即重新评估放行），忽略名单持久化重启不丢。
 ///
@@ -24,14 +25,16 @@ struct MediaAppsView: View {
     private var rows: [AudioRow] {
         var byKey: [String: AudioRow] = [:]
         for record in configStore.config.audioAppHistory {
-            byKey[record.key] = AudioRow(record: record, isPlaying: false)
+            byKey[record.key] = AudioRow(record: record, isPlaying: false, displayIDs: [])
         }
         for app in mediaMonitor.nowPlayingApps {
-            if var row = byKey[app.key] {
+            if var row = byKey[app.record.key] {
                 row.isPlaying = true
-                byKey[app.key] = row
+                row.displayIDs = app.displayIDs
+                byKey[app.record.key] = row
             } else {
-                byKey[app.key] = AudioRow(record: app, isPlaying: true)
+                byKey[app.record.key] = AudioRow(record: app.record, isPlaying: true,
+                                                 displayIDs: app.displayIDs)
             }
         }
         return byKey.values.sorted { lhs, rhs in
@@ -111,7 +114,7 @@ private struct InfoPopoverView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("本机播放过声音的应用会按每 2 秒检测累积记录，正在出声的置顶显示；点按「忽略」后，该应用即使正在出声也不会阻止所在显示器进入闲置循环播放。")
+            Text("本机播放过声音的应用会按每 2 秒检测累积记录，正在出声的置顶显示并标注所在显示器；点按「忽略」后，该应用即使正在出声也不会阻止所在显示器进入闲置循环播放。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -203,6 +206,8 @@ private struct WhitelistAppIcon: View {
 private struct AudioRow: Identifiable {
     let record: AudioAppRecord
     var isPlaying: Bool
+    /// 正在播放时所在显示器 ID 集合（非播放状态为空）
+    var displayIDs: Set<String> = []
     var id: String { record.key }
 }
 
@@ -229,6 +234,19 @@ private struct AudioAppRow: View {
             return "正在播放"
         }
         return "最近播放 \(row.record.lastPlayedAt.formatted(.relative(presentation: .named)))"
+    }
+
+    /// 正在播放所在显示器文案：命中全部屏幕（多屏时）归纳为「所有显示器」；
+    /// 未在播放、窗口定位不到（空集合）或显示器已断开时为 nil（不显示该段）
+    private var playingDisplayText: String? {
+        guard row.isPlaying, !row.displayIDs.isEmpty else { return nil }
+        let screens = NSScreen.screens
+        let names = screens
+            .filter { row.displayIDs.contains(String($0.fluxDisplayID)) }
+            .map(\.localizedName)
+        guard !names.isEmpty else { return nil }
+        if screens.count > 1 && names.count == screens.count { return "所有显示器" }
+        return names.joined(separator: "、")
     }
 
     var body: some View {
@@ -258,6 +276,20 @@ private struct AudioAppRow: View {
                     Text(statusText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let displayText = playingDisplayText {
+                        Text("·")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        Image(systemName: "display")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(displayText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help("正在播放所在显示器：\(displayText)")
+                    }
                 }
             }
 

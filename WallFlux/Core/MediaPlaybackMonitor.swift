@@ -31,7 +31,7 @@ import os
 /// 命中作用（配置 `mediaPlaybackKeepsActive` 开启时）：命中屏不进入闲置循环播放；
 /// 媒体开始时若该屏正处于闲置播放则立即退出，壁纸让位。不影响微跳
 /// （与全屏暂停微跳是两个独立行为）。发现历史与「正在播放」列表始终维护
-/// （供设置「媒体应用」页展示），与开关无关。
+/// （供设置「媒体应用」页展示；正在播放项按应用标注所在显示器），与开关无关。
 final class MediaPlaybackMonitor: ObservableObject {
     private let logger = Logger(subsystem: "com.wallflux.WallFlux", category: "MediaPlaybackMonitor")
     private let configStore: ConfigStore
@@ -42,8 +42,8 @@ final class MediaPlaybackMonitor: ObservableObject {
     /// 发现历史「最近播放时间」刷新的最小间隔（秒）：限频持久化，避免每次轮询都写配置
     private static let historyRefreshInterval: TimeInterval = 30
 
-    /// 当前正在出声的应用（含被忽略的，设置页「正在播放」标记用）
-    @Published private(set) var nowPlayingApps: [AudioAppRecord] = []
+    /// 当前正在出声的应用（含被忽略的，设置页「正在播放」标记与所在显示器展示用）
+    @Published private(set) var nowPlayingApps: [PlayingMediaApp] = []
 
     private var pollTimer: Timer?
     /// 最近一次命中列表（避免重复推送）
@@ -124,7 +124,9 @@ final class MediaPlaybackMonitor: ObservableObject {
         }
         let now = Date()
         nowPlayingApps = snapshot.processes.map {
-            AudioAppRecord(key: $0.key, bundleID: $0.bundleID, name: $0.name, lastPlayedAt: now)
+            PlayingMediaApp(record: AudioAppRecord(key: $0.key, bundleID: $0.bundleID, name: $0.name,
+                                                   lastPlayedAt: now),
+                            displayIDs: snapshot.processDisplayIDs[$0.key] ?? [])
         }
         updateDiscoveryHistory(playing: snapshot.processes, now: now)
         applyAutoIgnore(playing: snapshot.processes)
@@ -189,13 +191,17 @@ final class MediaPlaybackMonitor: ObservableObject {
         }
         let ignored = Set(configStore.config.ignoredAudioAppKeys)
         let visible = processes.filter { !ignored.contains($0.key) }
-        let displayIDs = displayIDs(for: visible)
+        // 显示器解析覆盖全部出声进程（被忽略的应用也要展示所在屏），
+        // 命中集合只取未忽略进程的并集
+        let processDisplayIDs = displayIDsByProcess(for: processes)
+        let displayIDs = visible.reduce(into: Set<String>()) { $0.formUnion(processDisplayIDs[$1.key] ?? []) }
         if !visible.isEmpty {
             logger.info("检测到 \(visible.count) 个进程正在输出声音（\(visible.map(\.name).joined(separator: "、"), privacy: .public)），命中 \(displayIDs.count) 个显示器")
         } else if !processes.isEmpty {
             logger.info("\(processes.count) 个出声进程全部在忽略名单中，不命中任何显示器")
         }
-        return PlaybackSnapshot(displayIDs: displayIDs, processes: processes)
+        return PlaybackSnapshot(displayIDs: displayIDs, processes: processes,
+                                processDisplayIDs: processDisplayIDs)
     }
 
     // MARK: - CoreAudio 进程枚举（公开 API，实现参考 sountop，MIT）
@@ -213,6 +219,9 @@ final class MediaPlaybackMonitor: ObservableObject {
     private struct PlaybackSnapshot {
         var displayIDs: Set<String> = []
         var processes: [AudioOutputProcess] = []
+        /// 每个出声进程命中的显示器（身份键 → 显示器 ID 集合，含被忽略的进程，
+        /// 供设置页展示「该应用在哪个屏幕播放」）
+        var processDisplayIDs: [String: Set<String>] = [:]
     }
 
     /// 枚举所有音频客户端进程对象，返回「正在输出声音」的进程（含自己的 PID 过滤）
@@ -344,33 +353,39 @@ final class MediaPlaybackMonitor: ObservableObject {
     /// utility 子进程输出（窗口归主应用），故进程无窗口时按 Bundle 归属解析
     /// 宿主应用窗口再判交（与 displayName 同源逻辑）；两者都定位不到（如后台
     /// 播放无窗口）才回退所有显示器（保守，避免壁纸覆盖媒体）。
-    /// 全部被忽略时传入空数组，返回空集合（不命中任何显示器）。
-    private func displayIDs(for processes: [AudioOutputProcess]) -> Set<String> {
+    ///
+    /// 逐个进程返回结果（身份键 → 显示器 ID 集合），而不是整体并集：
+    /// 设置「媒体应用」页需要按应用展示所在屏幕。同身份键的多个进程（如多个
+    /// Chrome 音频辅助进程）取并集。调用方用未忽略进程的并集作为命中屏，
+    /// 全部定位不到时各进程都回退所有屏幕，并集与旧的「整体回退」一致。
+    private func displayIDsByProcess(for processes: [AudioOutputProcess]) -> [String: Set<String>] {
+        guard !processes.isEmpty else { return [:] }
         let allDisplayIDs = Set(NSScreen.screens.map { String($0.fluxDisplayID) })
-        guard !processes.isEmpty else { return [] } // 全部被忽略：不命中任何显示器
         guard let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
-            return allDisplayIDs
+            return Dictionary(processes.map { ($0.key, allDisplayIDs) },
+                              uniquingKeysWith: { $0.union($1) })
         }
-        var result = Set<String>()
+        var result: [String: Set<String>] = [:]
         for proc in processes {
             // 优先按进程自身窗口；layer 0 普通窗口（不透明、有实际尺寸），
             // 壁纸窗口闲置置顶播放时 layer 1000、其余时间隐藏，均不会命中筛选
             let procRects = ordinaryWindowRects(windows, ownedBy: proc.pid)
             if !procRects.isEmpty {
-                result.formUnion(displaysHit(by: procRects))
+                result[proc.key, default: []].formUnion(displaysHit(by: procRects))
             } else if let bundleID = proc.bundleID,
                       let host = Self.hostingApp(bundleID: bundleID),
                       let hostPid = host.pid {
                 let hostRects = ordinaryWindowRects(windows, ownedBy: hostPid)
                 guard !hostRects.isEmpty else {
                     logger.info("\(proc.name, privacy: .public)（pid \(proc.pid)）及其宿主 \(host.name, privacy: .public) 均无窗口，回退所有显示器")
-                    return allDisplayIDs
+                    result[proc.key, default: []].formUnion(allDisplayIDs)
+                    continue
                 }
                 logger.info("\(proc.name, privacy: .public)（pid \(proc.pid)）无窗口，按 Bundle 归属使用宿主 \(host.name, privacy: .public) 的窗口")
-                result.formUnion(displaysHit(by: hostRects))
+                result[proc.key, default: []].formUnion(displaysHit(by: hostRects))
             } else {
                 logger.info("\(proc.name, privacy: .public)（pid \(proc.pid)）未找到窗口，回退所有显示器")
-                return allDisplayIDs
+                result[proc.key, default: []].formUnion(allDisplayIDs)
             }
         }
         return result
@@ -403,5 +418,17 @@ final class MediaPlaybackMonitor: ObservableObject {
         }
         return result
     }
+}
+
+/// 正在出声的应用快照（瞬时数据，不持久化）
+///
+/// `record` 是应用身份与最近播放时间（与发现历史同结构），`displayIDs` 是该应用
+/// 当前所在显示器集合（窗口定位不到时回退所有显示器）。设置「媒体应用」页据此
+/// 展示「正在播放 · [显示器名]」。
+struct PlayingMediaApp: Identifiable {
+    let record: AudioAppRecord
+    let displayIDs: Set<String>
+
+    var id: String { record.key }
 }
 

@@ -15,3 +15,4 @@ xcuserdata/
 # 其他
 *.log
 .workbuddy
+outputs/

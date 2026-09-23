@@ -203,7 +203,9 @@ DisplayConfig {
 - 轮询与推送：
   - 2 秒定时器（与 SmartPauseMonitor 同节奏），枚举在后台队列执行（单轮仅数十个属性查询，开销可忽略）；上一轮在途时跳过本轮
   - 命中计算：`CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 取出声进程 layer 0 普通窗口，换算为 AppKit 坐标（`appKitRectFromCGWindowList`，CGWindowList 原点在主屏左上角）后与各 `NSScreen.frame` 判交得命中屏集合；Chromium/Electron 类应用（抖音、Chrome 等）音频由无窗口的 utility 子进程输出（如 `com.bytedance.douyin.desktop.helper`），进程自身找不到窗口时按 Bundle 归属（bundle ID 前缀最短匹配，与显示名解析同源）解析宿主应用窗口再判交；两者都定位不到（后台播放无窗口等）才回退命中所有显示器（保守，避免壁纸覆盖媒体）
+  - 解析按进程逐个进行（`displayIDsByProcess(for:)`，身份键 → 显示器 ID 集合；同身份键的多个进程取并集），命中集合为未忽略进程的并集——与旧的「整体回退」结果一致（回退进程的集合即全部屏幕，并集不变），同时让每个正在出声的应用都能拿到自己的所在显示器（回退进程视为全部屏幕）
   - 推送 `applyMediaPlaybackDisplayIDs(_:)`；配置开关 `mediaPlaybackKeepsActive` 关闭时不命中、立即清空命中（发现历史与「正在播放」列表照常维护）
+- 设置页数据：`nowPlayingApps: [PlayingMediaApp]`（瞬时，不持久化）随每次轮询刷新，`PlayingMediaApp = 应用身份记录 + 所在显示器 ID 集合`；「媒体应用」页把显示器 ID 映射为 `NSScreen.localizedName` 展示（命中全部屏幕且多屏时归纳为「所有显示器」），只读，不影响命中计算
 - 状态机联动（见 §4）：
   - `active`：媒体播放中不启用闲置计时（媒体结束后 `setMediaPlaybackPresent(false)` 重新启动）；媒体开始时若该屏正闲置播放则立即 `beginExit` 让位
   - `idleTimerFired` / `resetIdleTimer` 均带 `mediaPlaybackBlocksIdle` 守卫（自动闲置）；`forcePlayNow`（立即播放，FR-12）为用户显式操作，强制覆盖媒体守卫：预览期间置顶播放且媒体守卫不生效（`manualPreviewActive`），任意输入退出后恢复守卫
